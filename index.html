@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socratic Science Tutor</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Socratic Science Tutor</h1>
+            <p class="tagline">Learn by discovering answers yourself</p>
+        </header>
+
+        <!-- API Key Setup Screen -->
+        <div id="setup-screen" class="screen">
+            <div class="setup-card">
+                <h2>Welcome, Explorer!</h2>
+                <p>Let's start your learning journey. First, we need your API key to power our conversation.</p>
+
+                <div class="form-group">
+                    <label for="api-key">Anthropic API Key</label>
+                    <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+                    <small>Your key is only stored for this session and deleted when you end it.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="student-name">What should I call you?</label>
+                    <input type="text" id="student-name" placeholder="Your name" autocomplete="off">
+                </div>
+
+                <div class="form-group">
+                    <label for="grade-level">What grade are you in?</label>
+                    <select id="grade-level">
+                        <option value="5">5th Grade</option>
+                        <option value="6" selected>6th Grade</option>
+                        <option value="7">7th Grade</option>
+                        <option value="8">8th Grade</option>
+                        <option value="9">9th Grade</option>
+                        <option value="10">10th Grade</option>
+                    </select>
+                </div>
+
+                <button id="start-session" class="btn btn-primary">Start Learning</button>
+            </div>
+        </div>
+
+        <!-- Topic Selection Screen -->
+        <div id="topic-screen" class="screen hidden">
+            <div class="topic-card">
+                <h2>Choose a Science Topic</h2>
+                <p>What would you like to explore today?</p>
+
+                <div class="topics-grid">
+                    <button class="topic-btn" data-topic="solar-system">
+                        <span class="topic-icon">&#127759;</span>
+                        <span class="topic-name">Solar System</span>
+                    </button>
+                    <button class="topic-btn" data-topic="human-body">
+                        <span class="topic-icon">&#129728;</span>
+                        <span class="topic-name">Human Body</span>
+                    </button>
+                    <button class="topic-btn" data-topic="ecosystems">
+                        <span class="topic-icon">&#127795;</span>
+                        <span class="topic-name">Ecosystems</span>
+                    </button>
+                    <button class="topic-btn" data-topic="matter-chemistry">
+                        <span class="topic-icon">&#129514;</span>
+                        <span class="topic-name">Matter & Chemistry</span>
+                    </button>
+                    <button class="topic-btn" data-topic="forces-motion">
+                        <span class="topic-icon">&#128640;</span>
+                        <span class="topic-name">Forces & Motion</span>
+                    </button>
+                    <button class="topic-btn" data-topic="electricity">
+                        <span class="topic-icon">&#9889;</span>
+                        <span class="topic-name">Electricity</span>
+                    </button>
+                    <button class="topic-btn" data-topic="weather-climate">
+                        <span class="topic-icon">&#127780;</span>
+                        <span class="topic-name">Weather & Climate</span>
+                    </button>
+                    <button class="topic-btn" data-topic="cells-life">
+                        <span class="topic-icon">&#129440;</span>
+                        <span class="topic-name">Cells & Life</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat/Tutoring Screen -->
+        <div id="chat-screen" class="screen hidden">
+            <div class="chat-header">
+                <div class="session-info">
+                    <span id="current-topic-display"></span>
+                    <span class="separator">|</span>
+                    <span id="question-count">Question 1</span>
+                </div>
+                <button id="end-session-btn" class="btn btn-secondary btn-small">End Session</button>
+            </div>
+
+            <div id="chat-container" class="chat-container">
+                <!-- Messages will be added here -->
+            </div>
+
+            <div class="input-area">
+                <textarea id="student-response" placeholder="Type your answer here... Use your own words!" rows="3"></textarea>
+                <div class="input-actions">
+                    <button id="send-response" class="btn btn-primary">Send</button>
+                    <button id="need-hint" class="btn btn-hint">I need a hint</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary/Report Screen -->
+        <div id="summary-screen" class="screen hidden">
+            <div class="summary-card">
+                <h2>Session Summary</h2>
+                <p class="summary-intro" id="summary-intro"></p>
+
+                <div class="summary-sections">
+                    <div class="summary-section strengths">
+                        <h3>What You Did Well</h3>
+                        <ul id="strengths-list"></ul>
+                    </div>
+
+                    <div class="summary-section improvements">
+                        <h3>Areas to Explore More</h3>
+                        <ul id="improvements-list"></ul>
+                    </div>
+
+                    <div class="summary-section next-steps">
+                        <h3>Next Steps</h3>
+                        <ul id="next-steps-list"></ul>
+                    </div>
+
+                    <div class="summary-section knowledge-map">
+                        <h3>Knowledge Map</h3>
+                        <div id="knowledge-map-container"></div>
+                    </div>
+                </div>
+
+                <div class="summary-actions">
+                    <button id="download-summary" class="btn btn-secondary">Download Report</button>
+                    <button id="new-session" class="btn btn-primary">Start New Session</button>
+                </div>
+
+                <p class="api-notice">Your API key has been cleared from this session.</p>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="loading-spinner"></div>
+            <p class="loading-text">Thinking...</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
