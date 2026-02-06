@@ -21,7 +21,15 @@
                 <p>Let's start your learning journey. First, we need your API key to power our conversation.</p>
 
                 <div class="form-group">
-                    <label for="api-key">Anthropic API Key</label>
+                    <label for="api-provider">AI Provider</label>
+                    <select id="api-provider">
+                        <option value="anthropic">Claude (Anthropic)</option>
+                        <option value="openai">GPT (OpenAI)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="api-key" id="api-key-label">Anthropic API Key</label>
                     <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
                     <small>Your key is only stored for this session and deleted when you end it.</small>
                 </div>
@@ -115,9 +123,9 @@
             <div class="input-area">
                 <div class="textarea-wrapper">
                     <textarea id="student-response" placeholder="Type your answer here... Use your own words!" rows="3"></textarea>
-                    <button id="record-btn" class="record-btn" title="Click to speak your answer">
-                        <svg class="mic-icon" viewBox="0 0 24 24" width="24" height="24">
-                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5z"/>
+                    <button type="button" id="record-btn" class="record-btn" title="Click to speak your answer">
+                        <svg class="mic-icon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
                             <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
                         </svg>
                     </button>
