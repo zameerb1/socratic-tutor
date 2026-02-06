@@ -19,12 +19,13 @@
  */
 
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
+    apiKey: "AIzaSyBX3l74kPd0nBzmBBBmi2JqtwHEMmWSEN8",
+    authDomain: "socratic-d9b82.firebaseapp.com",
+    projectId: "socratic-d9b82",
+    storageBucket: "socratic-d9b82.firebasestorage.app",
+    messagingSenderId: "214378985848",
+    appId: "1:214378985848:web:a3e58d30a2cad3becd308d",
+    measurementId: "G-G0EJ4MRBHM"
 };
 
 // Initialize Firebase (only if config is set)
