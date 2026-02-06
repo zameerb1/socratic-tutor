@@ -31,6 +31,18 @@ const SessionState = {
     }
 };
 
+// User authentication state
+const UserState = {
+    isLoggedIn: false,
+    user: null,
+    progress: {
+        totalSessions: 0,
+        averageScore: 0,
+        topicsExplored: [],
+        sessionHistory: []
+    }
+};
+
 // Topic definitions with starting concepts and progression paths
 const ScienceTopics = {
     'solar-system': {
@@ -143,10 +155,26 @@ const elements = {
     summaryScreen: document.getElementById('summary-screen'),
     loadingOverlay: document.getElementById('loading-overlay'),
 
+    // User Profile / Auth
+    googleSigninBtn: document.getElementById('google-signin-btn'),
+    userInfo: document.getElementById('user-info'),
+    userAvatar: document.getElementById('user-avatar'),
+    userName: document.getElementById('user-name'),
+    signoutBtn: document.getElementById('signout-btn'),
+    signinLink: document.getElementById('signin-link'),
+    signinPrompt: document.getElementById('signin-prompt'),
+
+    // Progress Summary
+    progressSummary: document.getElementById('progress-summary'),
+    totalSessions: document.getElementById('total-sessions'),
+    avgScore: document.getElementById('avg-score'),
+    topicsExplored: document.getElementById('topics-explored'),
+
     // Setup
     apiProviderSelect: document.getElementById('api-provider'),
     apiKeyInput: document.getElementById('api-key'),
     apiKeyLabel: document.getElementById('api-key-label'),
+    saveApiKeyCheckbox: document.getElementById('save-api-key'),
     studentNameInput: document.getElementById('student-name'),
     gradeLevelSelect: document.getElementById('grade-level'),
     startSessionBtn: document.getElementById('start-session'),
@@ -219,6 +247,244 @@ function hasValidApiKey() {
         return SessionState.apiKey.startsWith('sk-');
     }
     return SessionState.apiKey.startsWith('sk-ant-');
+}
+
+// ============================================================================
+// API Key Encryption (for local storage)
+// ============================================================================
+
+// Simple encryption for local storage (not military-grade, but better than plaintext)
+function encryptApiKey(apiKey) {
+    const salt = 'socratic-tutor-v1';
+    let encrypted = '';
+    for (let i = 0; i < apiKey.length; i++) {
+        encrypted += String.fromCharCode(
+            apiKey.charCodeAt(i) ^ salt.charCodeAt(i % salt.length)
+        );
+    }
+    return btoa(encrypted);
+}
+
+function decryptApiKey(encrypted) {
+    const salt = 'socratic-tutor-v1';
+    const decoded = atob(encrypted);
+    let decrypted = '';
+    for (let i = 0; i < decoded.length; i++) {
+        decrypted += String.fromCharCode(
+            decoded.charCodeAt(i) ^ salt.charCodeAt(i % salt.length)
+        );
+    }
+    return decrypted;
+}
+
+function saveApiKeyLocally(provider, apiKey) {
+    const encrypted = encryptApiKey(apiKey);
+    localStorage.setItem(`socratic_api_key_${provider}`, encrypted);
+}
+
+function loadApiKeyLocally(provider) {
+    const encrypted = localStorage.getItem(`socratic_api_key_${provider}`);
+    if (encrypted) {
+        try {
+            return decryptApiKey(encrypted);
+        } catch (e) {
+            console.error('Failed to decrypt API key');
+            return null;
+        }
+    }
+    return null;
+}
+
+function clearSavedApiKey(provider) {
+    localStorage.removeItem(`socratic_api_key_${provider}`);
+}
+
+// ============================================================================
+// Firebase Authentication
+// ============================================================================
+
+function isFirebaseConfigured() {
+    return typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0;
+}
+
+async function signInWithGoogle() {
+    if (!isFirebaseConfigured()) {
+        alert('Firebase is not configured. Please set up firebase-config.js to enable sign-in.');
+        return;
+    }
+
+    try {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        const result = await auth.signInWithPopup(provider);
+        console.log('Signed in:', result.user.displayName);
+    } catch (error) {
+        console.error('Sign-in error:', error);
+        if (error.code === 'auth/popup-blocked') {
+            alert('Please allow popups for this site to sign in with Google.');
+        } else if (error.code === 'auth/unauthorized-domain') {
+            alert('This domain is not authorized for Firebase authentication. Please add it in Firebase Console.');
+        } else {
+            alert('Failed to sign in. Please try again.');
+        }
+    }
+}
+
+async function signOut() {
+    if (!isFirebaseConfigured()) return;
+
+    try {
+        await auth.signOut();
+        console.log('Signed out');
+    } catch (error) {
+        console.error('Sign-out error:', error);
+    }
+}
+
+function updateAuthUI(user) {
+    if (user) {
+        // User is signed in
+        UserState.isLoggedIn = true;
+        UserState.user = user;
+
+        elements.googleSigninBtn.classList.add('hidden');
+        elements.userInfo.classList.remove('hidden');
+        elements.userAvatar.src = user.photoURL || '';
+        elements.userName.textContent = user.displayName || user.email;
+        elements.signinPrompt.classList.add('hidden');
+        elements.progressSummary.classList.remove('hidden');
+
+        // Pre-fill name if not already set
+        if (!elements.studentNameInput.value) {
+            elements.studentNameInput.value = user.displayName?.split(' ')[0] || '';
+        }
+
+        // Load user progress
+        loadUserProgress(user.uid);
+    } else {
+        // User is signed out
+        UserState.isLoggedIn = false;
+        UserState.user = null;
+
+        elements.googleSigninBtn.classList.remove('hidden');
+        elements.userInfo.classList.add('hidden');
+        elements.signinPrompt.classList.remove('hidden');
+        elements.progressSummary.classList.add('hidden');
+    }
+}
+
+// ============================================================================
+// Firestore Data Storage
+// ============================================================================
+
+async function loadUserProgress(userId) {
+    if (!isFirebaseConfigured() || !db) return;
+
+    try {
+        const doc = await db.collection('users').doc(userId).get();
+        if (doc.exists) {
+            const data = doc.data();
+            UserState.progress = {
+                totalSessions: data.totalSessions || 0,
+                averageScore: data.averageScore || 0,
+                topicsExplored: data.topicsExplored || [],
+                sessionHistory: data.sessionHistory || []
+            };
+
+            // Update UI
+            updateProgressUI();
+
+            // Load saved preferences
+            if (data.preferences) {
+                elements.gradeLevelSelect.value = data.preferences.gradeLevel || '6';
+                elements.apiProviderSelect.value = data.preferences.apiProvider || 'anthropic';
+                // Trigger change event to update label
+                elements.apiProviderSelect.dispatchEvent(new Event('change'));
+            }
+        }
+    } catch (error) {
+        console.error('Error loading user progress:', error);
+    }
+}
+
+async function saveSessionToFirestore(assessment) {
+    if (!isFirebaseConfigured() || !db || !UserState.user) return;
+
+    try {
+        const userId = UserState.user.uid;
+        const sessionData = {
+            date: firebase.firestore.Timestamp.now(),
+            topic: SessionState.currentTopic,
+            topicName: ScienceTopics[SessionState.currentTopic].name,
+            gradeLevel: SessionState.gradeLevel,
+            questionCount: SessionState.questionCount,
+            scores: SessionState.scoreData.scores,
+            averageScore: SessionState.scoreData.scores.length > 0
+                ? Math.round(SessionState.scoreData.scores.reduce((a, b) => a + b, 0) / SessionState.scoreData.scores.length)
+                : 0,
+            hintsUsed: SessionState.scoreData.hintsUsed,
+            assessment: {
+                strengths: assessment.strengths,
+                areasToImprove: assessment.areasToImprove,
+                conceptMastery: assessment.conceptMastery
+            }
+        };
+
+        // Get current user data
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const userData = userDoc.exists ? userDoc.data() : {};
+
+        // Update session history (keep last 50 sessions)
+        const sessionHistory = userData.sessionHistory || [];
+        sessionHistory.unshift(sessionData);
+        if (sessionHistory.length > 50) {
+            sessionHistory.pop();
+        }
+
+        // Calculate new totals
+        const totalSessions = (userData.totalSessions || 0) + 1;
+        const allScores = sessionHistory.map(s => s.averageScore).filter(s => s > 0);
+        const averageScore = allScores.length > 0
+            ? Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length)
+            : 0;
+
+        // Get unique topics explored
+        const topicsExplored = [...new Set(sessionHistory.map(s => s.topic))];
+
+        // Save to Firestore
+        await userRef.set({
+            totalSessions,
+            averageScore,
+            topicsExplored,
+            sessionHistory,
+            preferences: {
+                gradeLevel: SessionState.gradeLevel,
+                apiProvider: SessionState.apiProvider
+            },
+            lastUpdated: firebase.firestore.Timestamp.now()
+        }, { merge: true });
+
+        // Update local state
+        UserState.progress = {
+            totalSessions,
+            averageScore,
+            topicsExplored,
+            sessionHistory
+        };
+
+        updateProgressUI();
+        console.log('Session saved to Firestore');
+    } catch (error) {
+        console.error('Error saving session:', error);
+    }
+}
+
+function updateProgressUI() {
+    elements.totalSessions.textContent = UserState.progress.totalSessions;
+    elements.avgScore.textContent = UserState.progress.averageScore > 0
+        ? UserState.progress.averageScore
+        : '--';
+    elements.topicsExplored.textContent = UserState.progress.topicsExplored.length;
 }
 
 // ============================================================================
@@ -721,6 +987,14 @@ Generated by Socratic Science Tutor
 // Event Handlers
 // ============================================================================
 
+// Google Sign-In handlers
+elements.googleSigninBtn.addEventListener('click', signInWithGoogle);
+elements.signoutBtn.addEventListener('click', signOut);
+elements.signinLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    signInWithGoogle();
+});
+
 // API Provider change handler
 elements.apiProviderSelect.addEventListener('change', () => {
     const provider = elements.apiProviderSelect.value;
@@ -730,6 +1004,16 @@ elements.apiProviderSelect.addEventListener('change', () => {
     } else {
         elements.apiKeyLabel.textContent = 'Anthropic API Key';
         elements.apiKeyInput.placeholder = 'sk-ant-...';
+    }
+
+    // Load saved API key for this provider if available
+    const savedKey = loadApiKeyLocally(provider);
+    if (savedKey) {
+        elements.apiKeyInput.value = savedKey;
+        elements.saveApiKeyCheckbox.checked = true;
+    } else {
+        elements.apiKeyInput.value = '';
+        elements.saveApiKeyCheckbox.checked = false;
     }
 });
 
@@ -769,7 +1053,14 @@ elements.startSessionBtn.addEventListener('click', async () => {
     SessionState.studentName = name;
     SessionState.gradeLevel = grade;
 
-    // Clear the input for security
+    // Save API key locally if checkbox is checked
+    if (elements.saveApiKeyCheckbox.checked) {
+        saveApiKeyLocally(provider, apiKey);
+    } else {
+        clearSavedApiKey(provider);
+    }
+
+    // Clear the input for security (but we've saved it if needed)
     elements.apiKeyInput.value = '';
 
     // Show topic selection
@@ -910,7 +1201,12 @@ elements.endSessionBtn.addEventListener('click', async () => {
         // Store assessment for download
         SessionState.currentAssessment = assessment;
 
-        // Clear the API key
+        // Save session to Firestore if logged in
+        if (UserState.isLoggedIn) {
+            await saveSessionToFirestore(assessment);
+        }
+
+        // Clear the API key from memory (but keep saved if user opted in)
         clearApiKey();
 
         showScreen('summary');
@@ -1094,6 +1390,24 @@ if (sessionStorage.getItem('socratic_session_active')) {
 
 // Initialize speech recognition
 initSpeechRecognition();
+
+// Initialize Firebase Auth listener
+if (isFirebaseConfigured() && auth) {
+    auth.onAuthStateChanged((user) => {
+        updateAuthUI(user);
+    });
+} else {
+    // Hide auth elements if Firebase is not configured
+    elements.googleSigninBtn.style.display = 'none';
+    elements.signinPrompt.style.display = 'none';
+}
+
+// Load saved API key for default provider
+const savedKey = loadApiKeyLocally(elements.apiProviderSelect.value);
+if (savedKey) {
+    elements.apiKeyInput.value = savedKey;
+    elements.saveApiKeyCheckbox.checked = true;
+}
 
 // Focus on API key input
 elements.apiKeyInput.focus();
