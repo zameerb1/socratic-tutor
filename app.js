@@ -156,12 +156,12 @@ const elements = {
     loadingOverlay: document.getElementById('loading-overlay'),
 
     // User Profile / Auth
-    googleSigninBtn: document.getElementById('google-signin-btn'),
+    emailLoginForm: document.getElementById('email-login-form'),
+    loginEmailInput: document.getElementById('login-email'),
+    sendLoginLinkBtn: document.getElementById('send-login-link-btn'),
     userInfo: document.getElementById('user-info'),
-    userAvatar: document.getElementById('user-avatar'),
     userName: document.getElementById('user-name'),
     signoutBtn: document.getElementById('signout-btn'),
-    signinLink: document.getElementById('signin-link'),
     signinPrompt: document.getElementById('signin-prompt'),
 
     // Progress Summary
@@ -307,24 +307,81 @@ function isFirebaseConfigured() {
     return typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0;
 }
 
-async function signInWithGoogle() {
+async function sendLoginLink() {
     if (!isFirebaseConfigured()) {
         alert('Firebase is not configured. Please set up firebase-config.js to enable sign-in.');
         return;
     }
 
+    const email = elements.loginEmailInput.value.trim();
+    if (!email) {
+        alert('Please enter your email address.');
+        return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        alert('Please enter a valid email address.');
+        return;
+    }
+
+    const actionCodeSettings = {
+        url: window.location.href.split('?')[0], // Current page URL without query params
+        handleCodeInApp: true
+    };
+
     try {
-        const provider = new firebase.auth.GoogleAuthProvider();
-        const result = await auth.signInWithPopup(provider);
-        console.log('Signed in:', result.user.displayName);
+        elements.sendLoginLinkBtn.disabled = true;
+        elements.sendLoginLinkBtn.textContent = 'Sending...';
+
+        await auth.sendSignInLinkToEmail(email, actionCodeSettings);
+
+        // Save email locally to complete sign-in when user returns
+        localStorage.setItem('emailForSignIn', email);
+
+        alert('Login link sent! Check your email and click the link to sign in.');
+        elements.loginEmailInput.value = '';
     } catch (error) {
-        console.error('Sign-in error:', error);
-        if (error.code === 'auth/popup-blocked') {
-            alert('Please allow popups for this site to sign in with Google.');
-        } else if (error.code === 'auth/unauthorized-domain') {
-            alert('This domain is not authorized for Firebase authentication. Please add it in Firebase Console.');
+        console.error('Error sending login link:', error);
+        if (error.code === 'auth/invalid-email') {
+            alert('Invalid email address.');
+        } else if (error.code === 'auth/unauthorized-continue-uri') {
+            alert('This domain is not authorized. Please add it in Firebase Console.');
         } else {
-            alert('Failed to sign in. Please try again.');
+            alert('Failed to send login link. Please try again.');
+        }
+    } finally {
+        elements.sendLoginLinkBtn.disabled = false;
+        elements.sendLoginLinkBtn.textContent = 'Send Login Link';
+    }
+}
+
+async function completeEmailSignIn() {
+    if (!isFirebaseConfigured() || !auth) return;
+
+    // Check if this is a sign-in link
+    if (auth.isSignInWithEmailLink(window.location.href)) {
+        let email = localStorage.getItem('emailForSignIn');
+
+        if (!email) {
+            // User opened link on different device, ask for email
+            email = prompt('Please enter your email to confirm sign-in:');
+        }
+
+        if (email) {
+            try {
+                const result = await auth.signInWithEmailLink(email, window.location.href);
+                localStorage.removeItem('emailForSignIn');
+
+                // Clean up URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+
+                console.log('Signed in:', result.user.email);
+            } catch (error) {
+                console.error('Error completing sign-in:', error);
+                alert('Failed to complete sign-in. The link may have expired.');
+            }
         }
     }
 }
@@ -346,16 +403,16 @@ function updateAuthUI(user) {
         UserState.isLoggedIn = true;
         UserState.user = user;
 
-        elements.googleSigninBtn.classList.add('hidden');
+        elements.emailLoginForm.classList.add('hidden');
         elements.userInfo.classList.remove('hidden');
-        elements.userAvatar.src = user.photoURL || '';
-        elements.userName.textContent = user.displayName || user.email;
+        elements.userName.textContent = user.email;
         elements.signinPrompt.classList.add('hidden');
         elements.progressSummary.classList.remove('hidden');
 
-        // Pre-fill name if not already set
+        // Pre-fill name from email if not already set
         if (!elements.studentNameInput.value) {
-            elements.studentNameInput.value = user.displayName?.split(' ')[0] || '';
+            const nameFromEmail = user.email.split('@')[0];
+            elements.studentNameInput.value = nameFromEmail.charAt(0).toUpperCase() + nameFromEmail.slice(1);
         }
 
         // Load user progress
@@ -365,7 +422,7 @@ function updateAuthUI(user) {
         UserState.isLoggedIn = false;
         UserState.user = null;
 
-        elements.googleSigninBtn.classList.remove('hidden');
+        elements.emailLoginForm.classList.remove('hidden');
         elements.userInfo.classList.add('hidden');
         elements.signinPrompt.classList.remove('hidden');
         elements.progressSummary.classList.add('hidden');
@@ -987,13 +1044,15 @@ Generated by Socratic Science Tutor
 // Event Handlers
 // ============================================================================
 
-// Google Sign-In handlers
-elements.googleSigninBtn.addEventListener('click', signInWithGoogle);
-elements.signoutBtn.addEventListener('click', signOut);
-elements.signinLink.addEventListener('click', (e) => {
-    e.preventDefault();
-    signInWithGoogle();
+// Email Login handlers
+elements.sendLoginLinkBtn.addEventListener('click', sendLoginLink);
+elements.loginEmailInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        sendLoginLink();
+    }
 });
+elements.signoutBtn.addEventListener('click', signOut);
 
 // API Provider change handler
 elements.apiProviderSelect.addEventListener('change', () => {
@@ -1393,12 +1452,15 @@ initSpeechRecognition();
 
 // Initialize Firebase Auth listener
 if (isFirebaseConfigured() && auth) {
+    // Check if returning from email sign-in link
+    completeEmailSignIn();
+
     auth.onAuthStateChanged((user) => {
         updateAuthUI(user);
     });
 } else {
     // Hide auth elements if Firebase is not configured
-    elements.googleSigninBtn.style.display = 'none';
+    elements.emailLoginForm.style.display = 'none';
     elements.signinPrompt.style.display = 'none';
 }
 
