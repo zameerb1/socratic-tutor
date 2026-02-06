@@ -22,6 +22,11 @@ const SessionState = {
         conceptsExplored: {},
         confidenceLevels: [],
         overallEngagement: 'moderate'
+    },
+    scoreData: {
+        scores: [],
+        hintsUsed: 0,
+        currentScore: null
     }
 };
 
@@ -154,6 +159,9 @@ const elements = {
     sendResponseBtn: document.getElementById('send-response'),
     needHintBtn: document.getElementById('need-hint'),
     endSessionBtn: document.getElementById('end-session-btn'),
+    recordBtn: document.getElementById('record-btn'),
+    scoreBadge: document.getElementById('score-badge'),
+    scoreValue: document.getElementById('score-value'),
 
     // Summary
     summaryIntro: document.getElementById('summary-intro'),
@@ -290,7 +298,19 @@ CORE PRINCIPLES - FOLLOW THESE EXACTLY:
 
 10. TRACK CONCEPTS: Mentally note which concepts they understand well vs struggle with.
 
-Remember: Your goal is to help them DISCOVER knowledge, not receive it. Every response should end with a question.`;
+Remember: Your goal is to help them DISCOVER knowledge, not receive it. Every response should end with a question.
+
+IMPORTANT - SCORING: At the very end of EVERY response, you MUST include a score assessment in this exact format:
+[SCORE:XX]
+Where XX is a number from 0-100 representing how well the student demonstrated understanding in their response:
+- 85-100: Excellent understanding, clear explanation, shows deep thinking
+- 70-84: Good understanding, mostly correct, shows solid reasoning
+- 50-69: Partial understanding, some correct ideas but gaps exist
+- 30-49: Limited understanding, struggling with core concepts
+- 0-29: Minimal understanding or off-topic response
+
+For hint requests, score based on the context of the conversation so far, not the hint request itself.
+The score tag will be hidden from the student, so be accurate and honest in your assessment.`;
 }
 
 function buildAssessmentPrompt() {
@@ -346,15 +366,23 @@ async function generateTutorResponse(studentMessage, isHintRequest = false) {
 
         const response = await callClaudeAPI(SessionState.conversationHistory, systemPrompt);
 
-        // Add assistant response to history
+        // Parse score and get clean response
+        const { score, cleanResponse } = parseAndUpdateScore(response);
+
+        // Track hint usage for scoring
+        if (isHintRequest) {
+            SessionState.scoreData.hintsUsed++;
+        }
+
+        // Add assistant response to history (use clean response without score tag)
         SessionState.conversationHistory.push({
             role: 'assistant',
-            content: response
+            content: cleanResponse
         });
 
         SessionState.questionCount++;
 
-        return response;
+        return cleanResponse;
     } catch (error) {
         console.error('Error calling API:', error);
         throw error;
@@ -498,6 +526,59 @@ function removeTypingIndicator() {
 
 function updateQuestionCount() {
     elements.questionCount.textContent = `Question ${SessionState.questionCount}`;
+}
+
+function parseAndUpdateScore(response) {
+    // Extract score from response
+    const scoreMatch = response.match(/\[SCORE:(\d+)\]/);
+    let score = null;
+    let cleanResponse = response;
+
+    if (scoreMatch) {
+        score = parseInt(scoreMatch[1], 10);
+        cleanResponse = response.replace(/\[SCORE:\d+\]/g, '').trim();
+
+        // Update score tracking
+        SessionState.scoreData.scores.push(score);
+        SessionState.scoreData.currentScore = score;
+
+        // Update the display
+        updateScoreDisplay(score);
+    }
+
+    return { score, cleanResponse };
+}
+
+function updateScoreDisplay(score) {
+    // Calculate average score for display
+    const scores = SessionState.scoreData.scores;
+    const avgScore = scores.length > 0
+        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+        : score;
+
+    // Update the display
+    elements.scoreValue.textContent = avgScore;
+
+    // Update badge class based on score
+    elements.scoreBadge.classList.remove('score-high', 'score-medium', 'score-low');
+    if (avgScore >= 70) {
+        elements.scoreBadge.classList.add('score-high');
+    } else if (avgScore >= 50) {
+        elements.scoreBadge.classList.add('score-medium');
+    } else {
+        elements.scoreBadge.classList.add('score-low');
+    }
+
+    // Trigger animation
+    elements.scoreBadge.classList.add('score-update');
+    setTimeout(() => {
+        elements.scoreBadge.classList.remove('score-update');
+    }, 400);
+}
+
+function resetScoreDisplay() {
+    elements.scoreValue.textContent = '--';
+    elements.scoreBadge.classList.remove('score-high', 'score-medium', 'score-low');
 }
 
 // ============================================================================
@@ -650,6 +731,12 @@ elements.topicButtons.forEach(btn => {
             confidenceLevels: [],
             overallEngagement: 'moderate'
         };
+        SessionState.scoreData = {
+            scores: [],
+            hintsUsed: 0,
+            currentScore: null
+        };
+        resetScoreDisplay();
 
         showScreen('chat');
 
@@ -671,10 +758,16 @@ async function handleSendResponse() {
         return;
     }
 
+    // Stop recording if active
+    if (isRecording) {
+        stopRecording();
+    }
+
     // Disable input while processing
     elements.studentResponse.disabled = true;
     elements.sendResponseBtn.disabled = true;
     elements.needHintBtn.disabled = true;
+    elements.recordBtn.disabled = true;
 
     // Add student message
     addMessage(response, 'student');
@@ -693,6 +786,7 @@ async function handleSendResponse() {
         elements.studentResponse.disabled = false;
         elements.sendResponseBtn.disabled = false;
         elements.needHintBtn.disabled = false;
+        elements.recordBtn.disabled = false;
         elements.studentResponse.focus();
     }
 }
@@ -708,9 +802,15 @@ elements.studentResponse.addEventListener('keydown', (e) => {
 
 // Need Hint
 elements.needHintBtn.addEventListener('click', async () => {
+    // Stop recording if active
+    if (isRecording) {
+        stopRecording();
+    }
+
     elements.studentResponse.disabled = true;
     elements.sendResponseBtn.disabled = true;
     elements.needHintBtn.disabled = true;
+    elements.recordBtn.disabled = true;
 
     try {
         addTypingIndicator();
@@ -724,6 +824,7 @@ elements.needHintBtn.addEventListener('click', async () => {
         elements.studentResponse.disabled = false;
         elements.sendResponseBtn.disabled = false;
         elements.needHintBtn.disabled = false;
+        elements.recordBtn.disabled = false;
         elements.studentResponse.focus();
     }
 });
@@ -788,6 +889,11 @@ elements.newSessionBtn.addEventListener('click', () => {
         confidenceLevels: [],
         overallEngagement: 'moderate'
     };
+    SessionState.scoreData = {
+        scores: [],
+        hintsUsed: 0,
+        currentScore: null
+    };
     SessionState.currentAssessment = null;
 
     // Clear inputs
@@ -804,6 +910,110 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ============================================================================
+// Speech Recognition (Voice Input)
+// ============================================================================
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let isRecording = false;
+
+function initSpeechRecognition() {
+    if (!SpeechRecognition) {
+        // Hide the record button if speech recognition is not supported
+        elements.recordBtn.style.display = 'none';
+        console.log('Speech recognition not supported in this browser');
+        return;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    let finalTranscript = '';
+
+    recognition.onstart = () => {
+        isRecording = true;
+        elements.recordBtn.classList.add('recording');
+        elements.recordBtn.title = 'Click to stop recording';
+        finalTranscript = elements.studentResponse.value;
+    };
+
+    recognition.onresult = (event) => {
+        let interimTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                finalTranscript += transcript + ' ';
+            } else {
+                interimTranscript += transcript;
+            }
+        }
+
+        // Update the textarea with both final and interim results
+        elements.studentResponse.value = finalTranscript + interimTranscript;
+    };
+
+    recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        stopRecording();
+
+        if (event.error === 'not-allowed') {
+            alert('Microphone access was denied. Please allow microphone access to use voice input.');
+        } else if (event.error === 'no-speech') {
+            // Silently handle no-speech, user might just be thinking
+        }
+    };
+
+    recognition.onend = () => {
+        // If still in recording mode, restart (handles auto-stop after silence)
+        if (isRecording) {
+            try {
+                recognition.start();
+            } catch (e) {
+                stopRecording();
+            }
+        }
+    };
+}
+
+function startRecording() {
+    if (!recognition) return;
+
+    try {
+        recognition.start();
+    } catch (e) {
+        console.error('Error starting recognition:', e);
+    }
+}
+
+function stopRecording() {
+    isRecording = false;
+    elements.recordBtn.classList.remove('recording');
+    elements.recordBtn.title = 'Click to speak your answer';
+
+    if (recognition) {
+        try {
+            recognition.stop();
+        } catch (e) {
+            // Ignore errors on stop
+        }
+    }
+}
+
+function toggleRecording() {
+    if (isRecording) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+}
+
+// Record button click handler
+elements.recordBtn.addEventListener('click', toggleRecording);
+
+// ============================================================================
 // Initialize
 // ============================================================================
 
@@ -811,6 +1021,9 @@ window.addEventListener('beforeunload', () => {
 if (sessionStorage.getItem('socratic_session_active')) {
     sessionStorage.removeItem('socratic_session_active');
 }
+
+// Initialize speech recognition
+initSpeechRecognition();
 
 // Focus on API key input
 elements.apiKeyInput.focus();
