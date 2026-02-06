@@ -59,27 +59,26 @@ body {
     margin-top: 16px;
 }
 
-.btn-google {
+.email-login-form {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 20px;
-    background: white;
-    color: var(--text-primary);
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.email-input {
+    padding: 10px 16px;
     border: 2px solid var(--border-color);
     border-radius: 8px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
+    font-size: 0.95rem;
+    width: 220px;
+    transition: border-color 0.2s;
 }
 
-.btn-google:hover {
-    background: var(--background);
-    border-color: var(--secondary-color);
-}
-
-.btn-google svg {
-    flex-shrink: 0;
+.email-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
 }
 
 .user-info {
@@ -90,13 +89,6 @@ body {
     background: var(--card-bg);
     border-radius: 30px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.user-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    object-fit: cover;
 }
 
 .user-name {

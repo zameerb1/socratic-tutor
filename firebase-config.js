@@ -7,9 +7,10 @@
  * 2. Create a new project (or use existing one)
  * 3. Add a web app to your project
  * 4. Copy your config values below
- * 5. Enable Google Sign-In:
+ * 5. Enable Email Link (Passwordless) Sign-In:
  *    - Go to Authentication > Sign-in method
- *    - Enable Google provider
+ *    - Click "Email/Password"
+ *    - Enable "Email link (passwordless sign-in)"
  * 6. Enable Firestore:
  *    - Go to Firestore Database
  *    - Create database (start in test mode for development)
