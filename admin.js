@@ -259,7 +259,6 @@ async function handleLogin(passphrase) {
     }
 
     const hash = await sha256(passphrase);
-    console.log(`[Auth] Passphrase hash: ${hash}`);
 
     if (hash === ADMIN_PASSPHRASE_HASH) {
         isAuthenticated = true;
