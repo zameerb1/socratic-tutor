@@ -12,17 +12,6 @@
         <header class="header">
             <h1>Socratic Science Tutor</h1>
             <p class="tagline">Learn by discovering answers yourself</p>
-            <!-- User Profile Area -->
-            <div id="user-profile" class="user-profile">
-                <div id="email-login-form" class="email-login-form">
-                    <input type="email" id="login-email" placeholder="Enter your email" class="email-input">
-                    <button id="send-login-link-btn" class="btn btn-primary btn-small">Send Login Link</button>
-                </div>
-                <div id="user-info" class="user-info hidden">
-                    <span id="user-name" class="user-name"></span>
-                    <button id="signout-btn" class="btn btn-small btn-secondary">Sign Out</button>
-                </div>
-            </div>
         </header>
 
         <!-- API Key Setup Screen -->
@@ -31,23 +20,6 @@
                 <h2>Welcome, Explorer!</h2>
                 <p>Let's start your learning journey. First, we need your API key to power our conversation.</p>
 
-                <!-- Progress Summary (shown when logged in) -->
-                <div id="progress-summary" class="progress-summary hidden">
-                    <h3>Your Progress</h3>
-                    <div class="progress-stats">
-                        <div class="stat">
-                            <span class="stat-value" id="total-sessions">0</span>
-                            <span class="stat-label">Sessions</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-value" id="avg-score">--</span>
-                            <span class="stat-label">Avg Score</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-value" id="topics-explored">0</span>
-                            <span class="stat-label">Topics</span>
-                        </div>
-                    </div>
                 </div>
 
                 <div class="form-group">
@@ -89,9 +61,6 @@
 
                 <button id="start-session" class="btn btn-primary">Start Learning</button>
 
-                <p id="signin-prompt" class="signin-prompt">
-                    Sign in above to save your progress and scores!
-                </p>
             </div>
         </div>
 
@@ -220,14 +189,6 @@
             <p class="loading-text">Thinking...</p>
         </div>
     </div>
-
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-
-    <!-- Firebase Config (user must create this) -->
-    <script src="firebase-config.js"></script>
 
     <!-- Main App -->
     <script src="app.js"></script>

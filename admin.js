@@ -2,16 +2,22 @@
  * Curriculum Admin Dashboard
  * Manages curriculum CRUD operations, PDF upload with Mistral OCR,
  * and admin authentication for the Socratic Science Tutor.
+ *
+ * Data is stored in-memory and exported/imported as curriculum.json.
+ * No backend or database required.
  */
 
 // ============================================================================
 // Constants & Configuration
 // ============================================================================
 
-const ADMIN_EMAIL = 'drsameerb@gmail.com';
+// SHA-256 hash of the admin passphrase. Replace with your own hash.
+// Generate with: echo -n "yourpassphrase" | shasum -a 256
+const ADMIN_PASSPHRASE_HASH = '85bd67b52c68dd703d74ac3cf3bfd7e218e971ddb3257e88fc1e65bb3c29fa20';
+
 const MISTRAL_OCR_API_URL = 'https://api.mistral.ai/v1/ocr';
-const MISTRAL_API_KEY = 'yuZDkE9CSp5mB4lfNvLyIrLcVbllAQqB';
 const MAX_PDF_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+const CURRICULUM_JSON_URL = 'curriculum.json';
 
 const TOPIC_NAMES = {
     'solar-system': 'Solar System',
@@ -46,6 +52,9 @@ let selectedTopics = [];       // Topics selected in the modal form
 let selectedGrades = [];       // Grades selected in the modal form
 let selectedPdfFile = null;    // File object for PDF upload
 let activeContentTab = 'text'; // 'text' or 'pdf'
+let isAuthenticated = false;
+let hasUnsavedChanges = false;
+let lastLoadedData = null;     // Snapshot of data at last load/export for change detection
 
 // ============================================================================
 // DOM Element References
@@ -56,13 +65,20 @@ const dom = {
     authGate: document.getElementById('auth-gate'),
     dashboard: document.getElementById('admin-dashboard'),
     loginForm: document.getElementById('login-form'),
-    adminEmailInput: document.getElementById('admin-email'),
-    sendLinkBtn: document.getElementById('send-link-btn'),
+    adminPassphraseInput: document.getElementById('admin-passphrase'),
+    loginBtn: document.getElementById('login-btn'),
     authStatus: document.getElementById('auth-status'),
 
     // Header
-    adminEmailDisplay: document.getElementById('admin-email-display'),
     signOutBtn: document.getElementById('sign-out-btn'),
+    importJsonBtn: document.getElementById('import-json-btn'),
+    importJsonInput: document.getElementById('import-json-input'),
+    exportJsonBtn: document.getElementById('export-json-btn'),
+
+    // Mistral API Key
+    mistralApiKey: document.getElementById('mistral-api-key'),
+    saveApiKeyBtn: document.getElementById('save-api-key-btn'),
+    apiKeyStatus: document.getElementById('api-key-status'),
 
     // Stats
     statTotal: document.getElementById('stat-total'),
@@ -117,17 +133,29 @@ const dom = {
 // ============================================================================
 
 /**
- * Returns a human-readable relative time string from a Firestore Timestamp.
- * @param {firebase.firestore.Timestamp} timestamp
+ * Computes the SHA-256 hash of a string using the Web Crypto API.
+ * @param {string} message
+ * @returns {Promise<string>} Hex-encoded hash
+ */
+async function sha256(message) {
+    const msgBuffer = new TextEncoder().encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Returns a human-readable relative time string from an ISO date string.
+ * @param {string} dateString - ISO 8601 date string
  * @returns {string}
  */
-function timeAgo(timestamp) {
-    if (!timestamp || !timestamp.toDate) {
-        return 'Unknown';
-    }
+function timeAgo(dateString) {
+    if (!dateString) return 'Unknown';
+
+    const then = new Date(dateString).getTime();
+    if (isNaN(then)) return 'Unknown';
 
     const now = Date.now();
-    const then = timestamp.toDate().getTime();
     const diffMs = now - then;
     const diffSeconds = Math.floor(diffMs / 1000);
     const diffMinutes = Math.floor(diffSeconds / 60);
@@ -198,295 +226,261 @@ function showToast(message, type = 'info') {
 }
 
 // ============================================================================
-// Authentication
+// Mistral API Key Management
+// ============================================================================
+
+function getMistralApiKey() {
+    return localStorage.getItem('mistral_api_key') || '';
+}
+
+function saveMistralApiKey(key) {
+    if (key) {
+        localStorage.setItem('mistral_api_key', key);
+        dom.apiKeyStatus.textContent = 'Key saved';
+        dom.apiKeyStatus.style.color = '#22c55e';
+        showToast('Mistral API key saved.', 'success');
+    } else {
+        showToast('Please enter an API key.', 'error');
+    }
+}
+
+// ============================================================================
+// Authentication (Passphrase-based)
 // ============================================================================
 
 /**
- * Checks if Firebase is properly configured and available.
+ * Validates the entered passphrase against the stored hash.
+ * @param {string} passphrase
  */
-function isFirebaseConfigured() {
-    return typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0;
-}
-
-/**
- * Sends a passwordless sign-in link to the given email address.
- */
-async function sendAdminLoginLink() {
-    const email = dom.adminEmailInput.value.trim();
-
-    if (!email) {
-        showToast('Please enter your email address.', 'error');
+async function handleLogin(passphrase) {
+    if (!passphrase) {
+        showToast('Please enter the passphrase.', 'error');
         return;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-        showToast('Please enter a valid email address.', 'error');
-        return;
-    }
+    const hash = await sha256(passphrase);
+    console.log(`[Auth] Passphrase hash: ${hash}`);
 
-    console.log(`[Auth] Sending login link to: ${email}`);
-
-    const actionCodeSettings = {
-        url: window.location.href.split('?')[0],
-        handleCodeInApp: true
-    };
-
-    try {
-        dom.sendLinkBtn.disabled = true;
-        dom.sendLinkBtn.textContent = 'Sending...';
-
-        await auth.sendSignInLinkToEmail(email, actionCodeSettings);
-        localStorage.setItem('emailForSignIn', email);
-
-        dom.authStatus.textContent = 'Login link sent! Check your email and click the link to sign in.';
-        dom.authStatus.style.color = '#22c55e';
-        showToast('Login link sent! Check your email.', 'success');
-
-        console.log('[Auth] Login link sent successfully');
-    } catch (error) {
-        console.error('[Auth] Error sending login link:', error.code, error.message);
-
-        if (error.code === 'auth/invalid-email') {
-            showToast('Invalid email address.', 'error');
-        } else if (error.code === 'auth/unauthorized-continue-uri') {
-            showToast('This domain is not authorized. Add it in Firebase Console.', 'error');
-        } else {
-            showToast('Failed to send login link. Please try again.', 'error');
-        }
-    } finally {
-        dom.sendLinkBtn.disabled = false;
-        dom.sendLinkBtn.textContent = 'Send Login Link';
-    }
-}
-
-/**
- * Completes sign-in if the current URL is a Firebase email sign-in link.
- */
-async function completeEmailSignIn() {
-    if (!isFirebaseConfigured() || !auth) return;
-
-    if (auth.isSignInWithEmailLink(window.location.href)) {
-        console.log('[Auth] Detected sign-in link in URL, completing sign-in');
-
-        let email = localStorage.getItem('emailForSignIn');
-        if (!email) {
-            email = prompt('Please enter your email to confirm sign-in:');
-        }
-
-        if (email) {
-            try {
-                const result = await auth.signInWithEmailLink(email, window.location.href);
-                localStorage.removeItem('emailForSignIn');
-                window.history.replaceState({}, document.title, window.location.pathname);
-                console.log('[Auth] Email link sign-in completed for:', result.user.email);
-            } catch (error) {
-                console.error('[Auth] Error completing email sign-in:', error);
-                showToast('Failed to complete sign-in. The link may have expired.', 'error');
-            }
-        }
-    }
-}
-
-/**
- * Handles auth state changes. Enforces admin-only access.
- * @param {firebase.User|null} user
- */
-function handleAuthStateChange(user) {
-    if (user) {
-        console.log(`[Auth] User signed in: ${user.email}`);
-
-        if (user.email !== ADMIN_EMAIL) {
-            console.warn(`[Auth] Unauthorized user attempted access: ${user.email}`);
-            auth.signOut();
-            dom.authStatus.textContent = 'Access denied. This dashboard is restricted to the administrator.';
-            dom.authStatus.style.color = '#ef4444';
-            showToast('Access denied. Admin privileges required.', 'error');
-            return;
-        }
-
-        // Authorized admin
-        console.log('[Auth] Admin authenticated successfully');
+    if (hash === ADMIN_PASSPHRASE_HASH) {
+        isAuthenticated = true;
+        localStorage.setItem('admin_authenticated', 'true');
         dom.authGate.classList.add('hidden');
         dom.dashboard.classList.remove('hidden');
-        dom.adminEmailDisplay.textContent = user.email;
-
         loadCurriculum();
+        showToast('Signed in successfully.', 'success');
+        console.log('[Auth] Admin authenticated');
     } else {
-        console.log('[Auth] No user signed in, showing auth gate');
-        dom.authGate.classList.remove('hidden');
-        dom.dashboard.classList.add('hidden');
-        dom.authStatus.textContent = 'Please sign in with the admin email.';
-        dom.authStatus.style.color = '';
+        dom.authStatus.textContent = 'Incorrect passphrase.';
+        dom.authStatus.style.color = '#ef4444';
+        showToast('Incorrect passphrase.', 'error');
+        console.warn('[Auth] Incorrect passphrase attempt');
     }
 }
 
 /**
  * Signs the admin out and returns to the auth gate.
  */
-async function signOutAdmin() {
-    try {
-        console.log('[Auth] Signing out admin');
-        await auth.signOut();
-        curriculumData = [];
-        showToast('Signed out successfully.', 'info');
-    } catch (error) {
-        console.error('[Auth] Sign-out error:', error);
-        showToast('Error signing out.', 'error');
+function handleSignOut() {
+    isAuthenticated = false;
+    localStorage.removeItem('admin_authenticated');
+    curriculumData = [];
+    hasUnsavedChanges = false;
+    dom.authGate.classList.remove('hidden');
+    dom.dashboard.classList.add('hidden');
+    dom.adminPassphraseInput.value = '';
+    dom.authStatus.textContent = 'Please sign in with the admin passphrase.';
+    dom.authStatus.style.color = '';
+    showToast('Signed out.', 'info');
+    console.log('[Auth] Signed out');
+}
+
+/**
+ * Checks for an existing admin session in localStorage.
+ */
+function checkExistingSession() {
+    if (localStorage.getItem('admin_authenticated') === 'true') {
+        isAuthenticated = true;
+        dom.authGate.classList.add('hidden');
+        dom.dashboard.classList.remove('hidden');
+        loadCurriculum();
+        console.log('[Auth] Restored existing session');
     }
 }
 
 // ============================================================================
-// Firestore CRUD Operations
+// In-Memory CRUD Operations
 // ============================================================================
 
 /**
- * Loads all active curriculum documents from Firestore.
+ * Loads curriculum data from the static JSON file.
  */
 async function loadCurriculum() {
-    console.log('[Firestore] Loading curriculum data...');
+    console.log('[Data] Loading curriculum data from JSON...');
 
     try {
-        const snapshot = await db.collection('curriculum')
-            .where('isActive', '==', true)
-            .orderBy('updatedAt', 'desc')
-            .get();
+        const response = await fetch(CURRICULUM_JSON_URL + '?t=' + Date.now());
+        if (!response.ok) {
+            console.log('[Data] No curriculum.json found, starting fresh');
+            curriculumData = [];
+        } else {
+            const data = await response.json();
+            curriculumData = data.items || [];
+        }
 
-        curriculumData = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
-
-        console.log(`[Firestore] Loaded ${curriculumData.length} curriculum items`);
+        lastLoadedData = JSON.stringify(curriculumData);
+        hasUnsavedChanges = false;
+        console.log(`[Data] Loaded ${curriculumData.length} curriculum items`);
         updateStats();
         renderCurriculum();
     } catch (error) {
-        console.error('[Firestore] Error loading curriculum:', error);
-        showToast('Failed to load curriculum data.', 'error');
+        console.error('[Data] Error loading curriculum:', error);
+        showToast('Failed to load curriculum data. Starting with empty list.', 'error');
+        curriculumData = [];
+        lastLoadedData = JSON.stringify(curriculumData);
+        updateStats();
+        renderCurriculum();
     }
 }
 
 /**
- * Creates a new curriculum document in Firestore.
- * @param {Object} data - The curriculum data to save
- * @returns {string|null} The new document ID, or null on failure
+ * Creates a new curriculum item in memory.
+ * @param {Object} data - The curriculum data
+ * @returns {string|null} The new item ID, or null on failure
  */
-async function createCurriculum(data) {
-    console.log('[Firestore] Creating new curriculum item:', data.title);
+function createCurriculumItem(data) {
+    const newItem = {
+        id: 'curr_' + Date.now(),
+        title: data.title,
+        content: data.content,
+        contentType: data.contentType,
+        pdfFileName: data.pdfFileName || null,
+        topics: data.topics,
+        grades: data.grades,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    };
 
-    try {
-        const docData = {
-            title: data.title,
-            content: data.content,
-            contentType: data.contentType,
-            pdfStoragePath: data.pdfStoragePath || null,
-            pdfFileName: data.pdfFileName || null,
-            topics: data.topics,
-            grades: data.grades,
-            isActive: true,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            createdBy: ADMIN_EMAIL
-        };
-
-        const docRef = await db.collection('curriculum').add(docData);
-        console.log(`[Firestore] Created document with ID: ${docRef.id}`);
-        showToast('Curriculum item created successfully.', 'success');
-        return docRef.id;
-    } catch (error) {
-        console.error('[Firestore] Error creating curriculum:', error);
-        showToast('Failed to create curriculum item.', 'error');
-        return null;
-    }
+    curriculumData.unshift(newItem);
+    hasUnsavedChanges = true;
+    console.log(`[Data] Created item: ${newItem.id} - ${newItem.title}`);
+    showToast('Curriculum item created. Export JSON to save permanently.', 'success');
+    return newItem.id;
 }
 
 /**
- * Updates an existing curriculum document in Firestore.
- * @param {string} docId - The Firestore document ID
+ * Updates an existing curriculum item in memory.
+ * @param {string} itemId - The item ID
  * @param {Object} data - The fields to update
  * @returns {boolean} Whether the update succeeded
  */
-async function updateCurriculum(docId, data) {
-    console.log(`[Firestore] Updating curriculum item: ${docId}`, data.title);
-
-    try {
-        const updateData = {
-            title: data.title,
-            content: data.content,
-            contentType: data.contentType,
-            topics: data.topics,
-            grades: data.grades,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-
-        // Only update PDF fields if they are provided (preserves existing PDF on text edits)
-        if (data.pdfStoragePath !== undefined) {
-            updateData.pdfStoragePath = data.pdfStoragePath;
-        }
-        if (data.pdfFileName !== undefined) {
-            updateData.pdfFileName = data.pdfFileName;
-        }
-
-        await db.collection('curriculum').doc(docId).update(updateData);
-        console.log(`[Firestore] Updated document: ${docId}`);
-        showToast('Curriculum item updated successfully.', 'success');
-        return true;
-    } catch (error) {
-        console.error('[Firestore] Error updating curriculum:', error);
-        showToast('Failed to update curriculum item.', 'error');
+function updateCurriculumItem(itemId, data) {
+    const index = curriculumData.findIndex(d => d.id === itemId);
+    if (index === -1) {
+        showToast('Item not found.', 'error');
         return false;
     }
+
+    curriculumData[index] = {
+        ...curriculumData[index],
+        title: data.title,
+        content: data.content,
+        contentType: data.contentType,
+        pdfFileName: data.pdfFileName !== undefined ? data.pdfFileName : curriculumData[index].pdfFileName,
+        topics: data.topics,
+        grades: data.grades,
+        updatedAt: new Date().toISOString()
+    };
+
+    hasUnsavedChanges = true;
+    console.log(`[Data] Updated item: ${itemId}`);
+    showToast('Curriculum item updated. Export JSON to save permanently.', 'success');
+    return true;
 }
 
 /**
- * Soft-deletes a curriculum document by setting isActive to false.
- * @param {string} docId - The Firestore document ID
- * @returns {boolean} Whether the soft-delete succeeded
+ * Soft-deletes a curriculum item by setting isActive to false.
+ * @param {string} itemId - The item ID
+ * @returns {boolean} Whether the delete succeeded
  */
-async function softDeleteCurriculum(docId) {
-    console.log(`[Firestore] Soft-deleting curriculum item: ${docId}`);
-
-    try {
-        await db.collection('curriculum').doc(docId).update({
-            isActive: false,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-
-        console.log(`[Firestore] Soft-deleted document: ${docId}`);
-        showToast('Curriculum item deleted.', 'success');
-        return true;
-    } catch (error) {
-        console.error('[Firestore] Error deleting curriculum:', error);
-        showToast('Failed to delete curriculum item.', 'error');
+function deleteCurriculumItem(itemId) {
+    const index = curriculumData.findIndex(d => d.id === itemId);
+    if (index === -1) {
+        showToast('Item not found.', 'error');
         return false;
     }
+
+    curriculumData[index].isActive = false;
+    curriculumData[index].updatedAt = new Date().toISOString();
+    hasUnsavedChanges = true;
+    console.log(`[Data] Soft-deleted item: ${itemId}`);
+    showToast('Curriculum item deleted. Export JSON to save permanently.', 'success');
+    return true;
+}
+
+// ============================================================================
+// Import / Export
+// ============================================================================
+
+/**
+ * Exports the current curriculum data as a downloadable JSON file.
+ */
+function exportCurriculumJson() {
+    const exportData = {
+        version: 1,
+        lastUpdated: new Date().toISOString(),
+        items: curriculumData.filter(d => d.isActive !== false)
+    };
+
+    const jsonString = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'curriculum.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    lastLoadedData = JSON.stringify(curriculumData);
+    hasUnsavedChanges = false;
+    showToast('curriculum.json downloaded. Commit it to your repo to publish.', 'success');
+    console.log(`[Export] Exported ${exportData.items.length} active items`);
+}
+
+/**
+ * Imports curriculum data from a JSON file.
+ * @param {File} file - The JSON file
+ */
+function importCurriculumJson(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            if (data.items && Array.isArray(data.items)) {
+                curriculumData = data.items;
+                lastLoadedData = JSON.stringify(curriculumData);
+                hasUnsavedChanges = false;
+                updateStats();
+                renderCurriculum();
+                showToast(`Imported ${curriculumData.length} items from JSON.`, 'success');
+                console.log(`[Import] Imported ${curriculumData.length} items`);
+            } else {
+                showToast('Invalid JSON format. Expected { items: [...] }', 'error');
+                console.error('[Import] Invalid JSON structure');
+            }
+        } catch (err) {
+            console.error('[Import] Parse error:', err);
+            showToast('Failed to parse JSON file.', 'error');
+        }
+    };
+    reader.readAsText(file);
 }
 
 // ============================================================================
 // PDF Upload & Mistral OCR
 // ============================================================================
-
-/**
- * Uploads a PDF file to Firebase Storage.
- * @param {File} file - The PDF file to upload
- * @returns {string|null} The storage path, or null on failure
- */
-async function uploadPdfToStorage(file) {
-    const timestamp = Date.now();
-    const storagePath = `curriculum-pdfs/${timestamp}_${file.name}`;
-    console.log(`[Storage] Uploading PDF to: ${storagePath}, size: ${formatFileSize(file.size)}`);
-
-    try {
-        const storageRef = storage.ref(storagePath);
-        const uploadTask = await storageRef.put(file);
-        console.log(`[Storage] Upload complete: ${storagePath}`);
-        return storagePath;
-    } catch (error) {
-        console.error('[Storage] Upload error:', error);
-        showToast('Failed to upload PDF to storage.', 'error');
-        return null;
-    }
-}
 
 /**
  * Reads a File object as a base64-encoded string.
@@ -512,6 +506,12 @@ function readFileAsBase64(file) {
  * @returns {string|null} Extracted markdown text, or null on failure
  */
 async function extractTextWithOCR(file) {
+    const apiKey = getMistralApiKey();
+    if (!apiKey) {
+        showToast('Please enter your Mistral API key in the settings bar above.', 'error');
+        return null;
+    }
+
     console.log(`[OCR] Starting OCR for file: ${file.name}, size: ${formatFileSize(file.size)}`);
 
     try {
@@ -533,7 +533,7 @@ async function extractTextWithOCR(file) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${MISTRAL_API_KEY}`
+                'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify(payload)
         });
@@ -612,22 +612,22 @@ async function runOcrPipeline() {
     const progressText = dom.ocrProgress.querySelector('.progress-text');
 
     // Animate progress bar (indeterminate-style with stages)
-    progressFill.style.width = '20%';
-    progressText.textContent = 'Reading PDF file...';
+    if (progressFill) progressFill.style.width = '20%';
+    if (progressText) progressText.textContent = 'Reading PDF file...';
 
     await new Promise(r => setTimeout(r, 500));
-    progressFill.style.width = '40%';
-    progressText.textContent = 'Sending to OCR service...';
+    if (progressFill) progressFill.style.width = '40%';
+    if (progressText) progressText.textContent = 'Sending to OCR service...';
 
     const extractedText = await extractTextWithOCR(selectedPdfFile);
 
     if (extractedText !== null) {
-        progressFill.style.width = '90%';
-        progressText.textContent = 'Processing results...';
+        if (progressFill) progressFill.style.width = '90%';
+        if (progressText) progressText.textContent = 'Processing results...';
 
         await new Promise(r => setTimeout(r, 300));
-        progressFill.style.width = '100%';
-        progressText.textContent = 'OCR complete!';
+        if (progressFill) progressFill.style.width = '100%';
+        if (progressText) progressText.textContent = 'OCR complete!';
 
         // Show extracted text in editable preview
         dom.ocrPreview.value = extractedText;
@@ -640,9 +640,11 @@ async function runOcrPipeline() {
         console.log('[OCR] Pipeline completed successfully');
     } else {
         // OCR failed
-        progressFill.style.width = '100%';
-        progressFill.style.backgroundColor = '#ef4444';
-        progressText.textContent = 'OCR failed. Try again or enter text manually.';
+        if (progressFill) {
+            progressFill.style.width = '100%';
+            progressFill.style.backgroundColor = '#ef4444';
+        }
+        if (progressText) progressText.textContent = 'OCR failed. Try again or enter text manually.';
 
         await new Promise(r => setTimeout(r, 2000));
         dom.ocrProgress.classList.add('hidden');
@@ -791,7 +793,7 @@ function switchContentTab(tab) {
 /**
  * Gathers form data, validates, and saves (create or update) the curriculum item.
  */
-async function handleSave() {
+function handleSave() {
     const title = dom.curriculumTitle.value.trim();
 
     if (!title) {
@@ -803,7 +805,6 @@ async function handleSave() {
     // Determine content and content type
     let content = '';
     let contentType = 'text';
-    let pdfStoragePath = null;
     let pdfFileName = null;
 
     if (activeContentTab === 'pdf') {
@@ -815,23 +816,11 @@ async function handleSave() {
             return;
         }
 
-        // Upload PDF if a new file was selected
         if (selectedPdfFile) {
-            dom.saveBtn.disabled = true;
-            dom.saveBtn.textContent = 'Uploading...';
-
-            pdfStoragePath = await uploadPdfToStorage(selectedPdfFile);
-            if (!pdfStoragePath) {
-                dom.saveBtn.disabled = false;
-                dom.saveBtn.textContent = 'Save';
-                return;
-            }
             pdfFileName = selectedPdfFile.name;
         } else if (currentEditId) {
-            // Editing existing PDF item without re-uploading
             const existingDoc = curriculumData.find(d => d.id === currentEditId);
             if (existingDoc) {
-                pdfStoragePath = existingDoc.pdfStoragePath;
                 pdfFileName = existingDoc.pdfFileName;
             }
         }
@@ -858,7 +847,6 @@ async function handleSave() {
         title,
         content,
         contentType,
-        pdfStoragePath,
         pdfFileName,
         topics: [...selectedTopics],
         grades: [...selectedGrades].sort((a, b) => a - b)
@@ -866,52 +854,42 @@ async function handleSave() {
 
     console.log('[Save] Saving curriculum item:', { ...data, content: truncateText(data.content, 100) });
 
-    dom.saveBtn.disabled = true;
-    dom.saveBtn.textContent = 'Saving...';
-
     let success = false;
     if (currentEditId) {
-        success = await updateCurriculum(currentEditId, data);
+        success = updateCurriculumItem(currentEditId, data);
     } else {
-        const newId = await createCurriculum(data);
+        const newId = createCurriculumItem(data);
         success = newId !== null;
     }
 
-    dom.saveBtn.disabled = false;
-    dom.saveBtn.textContent = 'Save';
-
     if (success) {
         closeModal();
-        await loadCurriculum();
+        updateStats();
+        renderCurriculum();
     }
 }
 
 /**
  * Handles the delete button click inside the modal.
  */
-async function handleDelete() {
+function handleDelete() {
     if (!currentEditId) return;
 
     const doc = curriculumData.find(d => d.id === currentEditId);
     const titleDisplay = doc ? doc.title : currentEditId;
 
-    if (!confirm(`Are you sure you want to delete "${titleDisplay}"? This action can be undone by an administrator.`)) {
+    if (!confirm(`Are you sure you want to delete "${titleDisplay}"?`)) {
         return;
     }
 
     console.log(`[Delete] User confirmed deletion of: ${currentEditId}`);
 
-    dom.deleteBtn.disabled = true;
-    dom.deleteBtn.textContent = 'Deleting...';
-
-    const success = await softDeleteCurriculum(currentEditId);
-
-    dom.deleteBtn.disabled = false;
-    dom.deleteBtn.textContent = 'Delete';
+    const success = deleteCurriculumItem(currentEditId);
 
     if (success) {
         closeModal();
-        await loadCurriculum();
+        updateStats();
+        renderCurriculum();
     }
 }
 
@@ -923,18 +901,18 @@ async function handleDelete() {
  * Updates the stats bar with current curriculum counts.
  */
 function updateStats() {
-    const total = curriculumData.length;
-    const active = curriculumData.filter(d => d.isActive !== false).length;
+    const active = curriculumData.filter(d => d.isActive !== false);
+    const total = active.length;
     const uniqueTopics = new Set();
-    curriculumData.forEach(d => {
+    active.forEach(d => {
         (d.topics || []).forEach(t => uniqueTopics.add(t));
     });
 
     dom.statTotal.textContent = total;
-    dom.statActive.textContent = active;
+    dom.statActive.textContent = total;
     dom.statTopics.textContent = uniqueTopics.size;
 
-    console.log(`[Stats] Total: ${total}, Active: ${active}, Topics: ${uniqueTopics.size}`);
+    console.log(`[Stats] Total: ${total}, Active: ${total}, Topics: ${uniqueTopics.size}`);
 }
 
 /**
@@ -946,8 +924,8 @@ function renderCurriculum() {
 
     console.log(`[Render] Rendering curriculum. Filter - topic: "${filterTopic}", grade: "${filterGrade}"`);
 
-    // Apply filters
-    let filtered = curriculumData;
+    // Only show active items
+    let filtered = curriculumData.filter(d => d.isActive !== false);
 
     if (filterTopic) {
         filtered = filtered.filter(d => (d.topics || []).includes(filterTopic));
@@ -1033,19 +1011,20 @@ function createCurriculumCard(doc) {
 
     // Attach event listeners to card buttons
     const editBtn = card.querySelector('.btn-card-edit');
-    const deleteBtn = card.querySelector('.btn-card-delete');
+    const deleteCardBtn = card.querySelector('.btn-card-delete');
 
     editBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         openModal('edit', doc.id);
     });
 
-    deleteBtn.addEventListener('click', async (e) => {
+    deleteCardBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (confirm(`Are you sure you want to delete "${doc.title}"?`)) {
-            const success = await softDeleteCurriculum(doc.id);
+            const success = deleteCurriculumItem(doc.id);
             if (success) {
-                await loadCurriculum();
+                updateStats();
+                renderCurriculum();
             }
         }
     });
@@ -1114,11 +1093,30 @@ function initEventListeners() {
     // Auth: Login form submission
     dom.loginForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        sendAdminLoginLink();
+        handleLogin(dom.adminPassphraseInput.value);
     });
 
     // Auth: Sign out
-    dom.signOutBtn.addEventListener('click', signOutAdmin);
+    dom.signOutBtn.addEventListener('click', handleSignOut);
+
+    // Import/Export
+    dom.exportJsonBtn.addEventListener('click', exportCurriculumJson);
+
+    dom.importJsonBtn.addEventListener('click', () => {
+        dom.importJsonInput.click();
+    });
+
+    dom.importJsonInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            importCurriculumJson(e.target.files[0]);
+            dom.importJsonInput.value = ''; // Reset so same file can be re-imported
+        }
+    });
+
+    // Mistral API Key
+    dom.saveApiKeyBtn.addEventListener('click', () => {
+        saveMistralApiKey(dom.mistralApiKey.value.trim());
+    });
 
     // Filters
     dom.filterTopic.addEventListener('change', () => {
@@ -1201,6 +1199,16 @@ function initEventListeners() {
         }
     });
 
+    // Remove file button
+    document.querySelector('.remove-file')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedPdfFile = null;
+        dom.fileInfo.classList.add('hidden');
+        dom.ocrBtn.classList.add('hidden');
+        dom.ocrPreviewArea.classList.add('hidden');
+        dom.pdfInput.value = '';
+    });
+
     // OCR button
     dom.ocrBtn.addEventListener('click', runOcrPipeline);
 
@@ -1209,6 +1217,14 @@ function initEventListeners() {
 
     // Delete button (inside modal)
     dom.deleteBtn.addEventListener('click', handleDelete);
+
+    // Warn about unsaved changes
+    window.addEventListener('beforeunload', (e) => {
+        if (hasUnsavedChanges) {
+            e.preventDefault();
+            e.returnValue = 'You have unsaved changes. Export JSON before leaving to save your work.';
+        }
+    });
 
     console.log('[Init] Event listeners initialized');
 }
@@ -1223,17 +1239,15 @@ function init() {
     initEventListeners();
     initDragAndDrop();
 
-    if (isFirebaseConfigured() && auth) {
-        // Complete email sign-in if returning from a login link
-        completeEmailSignIn();
+    // Check for existing admin session
+    checkExistingSession();
 
-        // Listen for auth state changes
-        auth.onAuthStateChanged(handleAuthStateChange);
-        console.log('[Init] Firebase auth listener attached');
-    } else {
-        console.error('[Init] Firebase is not configured. Admin dashboard requires Firebase.');
-        dom.authStatus.textContent = 'Firebase is not configured. Please set up firebase-config.js.';
-        dom.authStatus.style.color = '#ef4444';
+    // Load Mistral API key status
+    const savedKey = getMistralApiKey();
+    if (savedKey) {
+        dom.mistralApiKey.value = '••••••••';
+        dom.apiKeyStatus.textContent = 'Key saved';
+        dom.apiKeyStatus.style.color = '#22c55e';
     }
 
     console.log('[Init] Admin dashboard initialized');

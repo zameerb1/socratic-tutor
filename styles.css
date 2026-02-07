@@ -54,86 +54,6 @@ body {
     font-size: 1.1rem;
 }
 
-/* User Profile */
-.user-profile {
-    margin-top: 16px;
-}
-
-.email-login-form {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    justify-content: center;
-}
-
-.email-input {
-    padding: 10px 16px;
-    border: 2px solid var(--border-color);
-    border-radius: 8px;
-    font-size: 0.95rem;
-    width: 220px;
-    transition: border-color 0.2s;
-}
-
-.email-input:focus {
-    outline: none;
-    border-color: var(--primary-color);
-}
-
-.user-info {
-    display: inline-flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 16px;
-    background: var(--card-bg);
-    border-radius: 30px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.user-name {
-    font-weight: 500;
-    color: var(--text-primary);
-}
-
-/* Progress Summary */
-.progress-summary {
-    background: linear-gradient(135deg, var(--primary-color) 0%, #6366f1 100%);
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 24px;
-    color: white;
-}
-
-.progress-summary h3 {
-    font-size: 1rem;
-    margin-bottom: 12px;
-    opacity: 0.9;
-}
-
-.progress-stats {
-    display: flex;
-    justify-content: space-around;
-    text-align: center;
-}
-
-.stat {
-    display: flex;
-    flex-direction: column;
-}
-
-.stat-value {
-    font-size: 1.75rem;
-    font-weight: 700;
-}
-
-.stat-label {
-    font-size: 0.75rem;
-    opacity: 0.8;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
 /* API Key Options */
 .api-key-options {
     margin-top: 8px;
@@ -152,26 +72,6 @@ body {
     width: 16px;
     height: 16px;
     cursor: pointer;
-}
-
-/* Sign-in Prompt */
-.signin-prompt {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border-color);
-    text-align: center;
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-}
-
-.signin-prompt a {
-    color: var(--primary-color);
-    text-decoration: none;
-    font-weight: 500;
-}
-
-.signin-prompt a:hover {
-    text-decoration: underline;
 }
 
 /* Screen Management */

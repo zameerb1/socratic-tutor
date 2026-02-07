@@ -31,59 +31,40 @@ const SessionState = {
     }
 };
 
-// User authentication state
-const UserState = {
-    isLoggedIn: false,
-    user: null,
-    progress: {
-        totalSessions: 0,
-        averageScore: 0,
-        topicsExplored: [],
-        sessionHistory: []
-    }
-};
-
 // Curriculum content for current session
 let sessionCurriculum = '';
 
 /**
- * Fetch relevant curriculum content from Firestore for the current topic and grade.
- * Queries curriculum collection by topic, filters by grade client-side.
- * Combines matching docs into one string, truncated to 8000 chars max.
+ * Fetch relevant curriculum content from static JSON file for the current topic and grade.
+ * Loads curriculum.json, filters by topic and grade, combines matching items.
+ * Truncates combined content to 8000 chars max.
  */
 async function fetchRelevantCurriculum(topicKey, gradeLevel) {
-    if (!isFirebaseConfigured() || !db) {
-        console.log('Firebase not configured, skipping curriculum fetch');
-        return '';
-    }
-
     try {
         console.log(`Fetching curriculum for topic=${topicKey}, grade=${gradeLevel}`);
-        const snapshot = await db.collection('curriculum')
-            .where('isActive', '==', true)
-            .where('topics', 'array-contains', topicKey)
-            .get();
-
-        if (snapshot.empty) {
-            console.log('No curriculum documents found for this topic');
+        const response = await fetch('curriculum.json');
+        if (!response.ok) {
+            console.log('No curriculum.json found, proceeding without curriculum');
             return '';
         }
+
+        const data = await response.json();
+        const items = data.items || [];
 
         let combinedContent = '';
         let matchCount = 0;
 
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            // Client-side filter by grade
-            if (data.grades && data.grades.includes(gradeLevel)) {
+        items.forEach(item => {
+            if (item.isActive &&
+                item.topics && item.topics.includes(topicKey) &&
+                item.grades && item.grades.includes(gradeLevel)) {
                 matchCount++;
-                combinedContent += `\n--- ${data.title} ---\n${data.content}\n`;
+                combinedContent += `\n--- ${item.title} ---\n${item.content}\n`;
             }
         });
 
         console.log(`Found ${matchCount} curriculum documents matching topic and grade`);
 
-        // Truncate to 8000 chars max to avoid overwhelming the prompt
         if (combinedContent.length > 8000) {
             combinedContent = combinedContent.substring(0, 8000) + '\n[...truncated]';
         }
@@ -206,21 +187,6 @@ const elements = {
     chatScreen: document.getElementById('chat-screen'),
     summaryScreen: document.getElementById('summary-screen'),
     loadingOverlay: document.getElementById('loading-overlay'),
-
-    // User Profile / Auth
-    emailLoginForm: document.getElementById('email-login-form'),
-    loginEmailInput: document.getElementById('login-email'),
-    sendLoginLinkBtn: document.getElementById('send-login-link-btn'),
-    userInfo: document.getElementById('user-info'),
-    userName: document.getElementById('user-name'),
-    signoutBtn: document.getElementById('signout-btn'),
-    signinPrompt: document.getElementById('signin-prompt'),
-
-    // Progress Summary
-    progressSummary: document.getElementById('progress-summary'),
-    totalSessions: document.getElementById('total-sessions'),
-    avgScore: document.getElementById('avg-score'),
-    topicsExplored: document.getElementById('topics-explored'),
 
     // Setup
     apiProviderSelect: document.getElementById('api-provider'),
@@ -349,251 +315,6 @@ function loadApiKeyLocally(provider) {
 
 function clearSavedApiKey(provider) {
     localStorage.removeItem(`socratic_api_key_${provider}`);
-}
-
-// ============================================================================
-// Firebase Authentication
-// ============================================================================
-
-function isFirebaseConfigured() {
-    return typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0;
-}
-
-async function sendLoginLink() {
-    if (!isFirebaseConfigured()) {
-        alert('Firebase is not configured. Please set up firebase-config.js to enable sign-in.');
-        return;
-    }
-
-    const email = elements.loginEmailInput.value.trim();
-    if (!email) {
-        alert('Please enter your email address.');
-        return;
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-        alert('Please enter a valid email address.');
-        return;
-    }
-
-    const actionCodeSettings = {
-        url: window.location.href.split('?')[0], // Current page URL without query params
-        handleCodeInApp: true
-    };
-
-    try {
-        elements.sendLoginLinkBtn.disabled = true;
-        elements.sendLoginLinkBtn.textContent = 'Sending...';
-
-        await auth.sendSignInLinkToEmail(email, actionCodeSettings);
-
-        // Save email locally to complete sign-in when user returns
-        localStorage.setItem('emailForSignIn', email);
-
-        alert('Login link sent! Check your email and click the link to sign in.');
-        elements.loginEmailInput.value = '';
-    } catch (error) {
-        console.error('Error sending login link:', error);
-        if (error.code === 'auth/invalid-email') {
-            alert('Invalid email address.');
-        } else if (error.code === 'auth/unauthorized-continue-uri') {
-            alert('This domain is not authorized. Please add it in Firebase Console.');
-        } else {
-            alert('Failed to send login link. Please try again.');
-        }
-    } finally {
-        elements.sendLoginLinkBtn.disabled = false;
-        elements.sendLoginLinkBtn.textContent = 'Send Login Link';
-    }
-}
-
-async function completeEmailSignIn() {
-    if (!isFirebaseConfigured() || !auth) return;
-
-    // Check if this is a sign-in link
-    if (auth.isSignInWithEmailLink(window.location.href)) {
-        let email = localStorage.getItem('emailForSignIn');
-
-        if (!email) {
-            // User opened link on different device, ask for email
-            email = prompt('Please enter your email to confirm sign-in:');
-        }
-
-        if (email) {
-            try {
-                const result = await auth.signInWithEmailLink(email, window.location.href);
-                localStorage.removeItem('emailForSignIn');
-
-                // Clean up URL
-                window.history.replaceState({}, document.title, window.location.pathname);
-
-                console.log('Signed in:', result.user.email);
-            } catch (error) {
-                console.error('Error completing sign-in:', error);
-                alert('Failed to complete sign-in. The link may have expired.');
-            }
-        }
-    }
-}
-
-async function signOut() {
-    if (!isFirebaseConfigured()) return;
-
-    try {
-        await auth.signOut();
-        console.log('Signed out');
-    } catch (error) {
-        console.error('Sign-out error:', error);
-    }
-}
-
-function updateAuthUI(user) {
-    if (user) {
-        // User is signed in
-        UserState.isLoggedIn = true;
-        UserState.user = user;
-
-        elements.emailLoginForm.classList.add('hidden');
-        elements.userInfo.classList.remove('hidden');
-        elements.userName.textContent = user.email;
-        elements.signinPrompt.classList.add('hidden');
-        elements.progressSummary.classList.remove('hidden');
-
-        // Pre-fill name from email if not already set
-        if (!elements.studentNameInput.value) {
-            const nameFromEmail = user.email.split('@')[0];
-            elements.studentNameInput.value = nameFromEmail.charAt(0).toUpperCase() + nameFromEmail.slice(1);
-        }
-
-        // Load user progress
-        loadUserProgress(user.uid);
-    } else {
-        // User is signed out
-        UserState.isLoggedIn = false;
-        UserState.user = null;
-
-        elements.emailLoginForm.classList.remove('hidden');
-        elements.userInfo.classList.add('hidden');
-        elements.signinPrompt.classList.remove('hidden');
-        elements.progressSummary.classList.add('hidden');
-    }
-}
-
-// ============================================================================
-// Firestore Data Storage
-// ============================================================================
-
-async function loadUserProgress(userId) {
-    if (!isFirebaseConfigured() || !db) return;
-
-    try {
-        const doc = await db.collection('users').doc(userId).get();
-        if (doc.exists) {
-            const data = doc.data();
-            UserState.progress = {
-                totalSessions: data.totalSessions || 0,
-                averageScore: data.averageScore || 0,
-                topicsExplored: data.topicsExplored || [],
-                sessionHistory: data.sessionHistory || []
-            };
-
-            // Update UI
-            updateProgressUI();
-
-            // Load saved preferences
-            if (data.preferences) {
-                elements.gradeLevelSelect.value = data.preferences.gradeLevel || '6';
-                elements.apiProviderSelect.value = data.preferences.apiProvider || 'anthropic';
-                // Trigger change event to update label
-                elements.apiProviderSelect.dispatchEvent(new Event('change'));
-            }
-        }
-    } catch (error) {
-        console.error('Error loading user progress:', error);
-    }
-}
-
-async function saveSessionToFirestore(assessment) {
-    if (!isFirebaseConfigured() || !db || !UserState.user) return;
-
-    try {
-        const userId = UserState.user.uid;
-        const sessionData = {
-            date: firebase.firestore.Timestamp.now(),
-            topic: SessionState.currentTopic,
-            topicName: ScienceTopics[SessionState.currentTopic].name,
-            gradeLevel: SessionState.gradeLevel,
-            questionCount: SessionState.questionCount,
-            scores: SessionState.scoreData.scores,
-            averageScore: SessionState.scoreData.scores.length > 0
-                ? Math.round(SessionState.scoreData.scores.reduce((a, b) => a + b, 0) / SessionState.scoreData.scores.length)
-                : 0,
-            hintsUsed: SessionState.scoreData.hintsUsed,
-            assessment: {
-                strengths: assessment.strengths,
-                areasToImprove: assessment.areasToImprove,
-                conceptMastery: assessment.conceptMastery
-            }
-        };
-
-        // Get current user data
-        const userRef = db.collection('users').doc(userId);
-        const userDoc = await userRef.get();
-        const userData = userDoc.exists ? userDoc.data() : {};
-
-        // Update session history (keep last 50 sessions)
-        const sessionHistory = userData.sessionHistory || [];
-        sessionHistory.unshift(sessionData);
-        if (sessionHistory.length > 50) {
-            sessionHistory.pop();
-        }
-
-        // Calculate new totals
-        const totalSessions = (userData.totalSessions || 0) + 1;
-        const allScores = sessionHistory.map(s => s.averageScore).filter(s => s > 0);
-        const averageScore = allScores.length > 0
-            ? Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length)
-            : 0;
-
-        // Get unique topics explored
-        const topicsExplored = [...new Set(sessionHistory.map(s => s.topic))];
-
-        // Save to Firestore
-        await userRef.set({
-            totalSessions,
-            averageScore,
-            topicsExplored,
-            sessionHistory,
-            preferences: {
-                gradeLevel: SessionState.gradeLevel,
-                apiProvider: SessionState.apiProvider
-            },
-            lastUpdated: firebase.firestore.Timestamp.now()
-        }, { merge: true });
-
-        // Update local state
-        UserState.progress = {
-            totalSessions,
-            averageScore,
-            topicsExplored,
-            sessionHistory
-        };
-
-        updateProgressUI();
-        console.log('Session saved to Firestore');
-    } catch (error) {
-        console.error('Error saving session:', error);
-    }
-}
-
-function updateProgressUI() {
-    elements.totalSessions.textContent = UserState.progress.totalSessions;
-    elements.avgScore.textContent = UserState.progress.averageScore > 0
-        ? UserState.progress.averageScore
-        : '--';
-    elements.topicsExplored.textContent = UserState.progress.topicsExplored.length;
 }
 
 // ============================================================================
@@ -1101,16 +822,6 @@ Generated by Socratic Science Tutor
 // Event Handlers
 // ============================================================================
 
-// Email Login handlers
-elements.sendLoginLinkBtn.addEventListener('click', sendLoginLink);
-elements.loginEmailInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        sendLoginLink();
-    }
-});
-elements.signoutBtn.addEventListener('click', signOut);
-
 // API Provider change handler
 elements.apiProviderSelect.addEventListener('change', () => {
     const provider = elements.apiProviderSelect.value;
@@ -1323,11 +1034,6 @@ elements.endSessionBtn.addEventListener('click', async () => {
         // Store assessment for download
         SessionState.currentAssessment = assessment;
 
-        // Save session to Firestore if logged in
-        if (UserState.isLoggedIn) {
-            await saveSessionToFirestore(assessment);
-        }
-
         // Clear the API key from memory (but keep saved if user opted in)
         clearApiKey();
 
@@ -1513,20 +1219,6 @@ if (sessionStorage.getItem('socratic_session_active')) {
 
 // Initialize speech recognition
 initSpeechRecognition();
-
-// Initialize Firebase Auth listener
-if (isFirebaseConfigured() && auth) {
-    // Check if returning from email sign-in link
-    completeEmailSignIn();
-
-    auth.onAuthStateChanged((user) => {
-        updateAuthUI(user);
-    });
-} else {
-    // Hide auth elements if Firebase is not configured
-    elements.emailLoginForm.style.display = 'none';
-    elements.signinPrompt.style.display = 'none';
-}
 
 // Load saved API key for default provider
 const savedKey = loadApiKeyLocally(elements.apiProviderSelect.value);

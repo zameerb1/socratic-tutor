@@ -153,6 +153,90 @@ body {
     background: #fef2f2;
 }
 
+/* --- Import/Export Buttons --- */
+.btn-import,
+.btn-export {
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-import:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: #eef2ff;
+}
+
+.btn-export:hover {
+    border-color: var(--success-color);
+    color: var(--success-color);
+    background: #f0fdf4;
+}
+
+/* --- Mistral API Key Settings Bar --- */
+.admin-settings-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.admin-settings-bar label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.admin-settings-bar input[type="password"] {
+    flex: 1;
+    min-width: 200px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--background);
+    transition: border-color 0.2s;
+}
+
+.admin-settings-bar input[type="password"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.btn-save-key {
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 2px solid var(--primary-color);
+    border-radius: 8px;
+    background: var(--primary-color);
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-save-key:hover {
+    background: #4338ca;
+    border-color: #4338ca;
+}
+
+.api-key-status {
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
 /* --- Stats Bar --- */
 .admin-stats-bar {
     display: grid;
@@ -755,11 +839,6 @@ body {
     border: 2px solid var(--border-color);
     border-radius: 8px;
     overflow: hidden;
-    display: none;
-}
-
-.pdf-preview-area.visible {
-    display: block;
 }
 
 .pdf-preview-header {
