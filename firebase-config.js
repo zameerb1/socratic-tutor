@@ -33,11 +33,16 @@ const firebaseConfig = {
 let firebaseApp = null;
 let auth = null;
 let db = null;
+let storage = null;
 
 if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
     firebaseApp = firebase.initializeApp(firebaseConfig);
     auth = firebase.auth();
     db = firebase.firestore();
+    // Initialize Storage only if the SDK is loaded (admin.html loads it, student page does not)
+    if (typeof firebase.storage === 'function') {
+        storage = firebase.storage();
+    }
     console.log('Firebase initialized');
 } else {
     console.log('Firebase not configured - running in local mode');

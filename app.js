@@ -43,6 +43,58 @@ const UserState = {
     }
 };
 
+// Curriculum content for current session
+let sessionCurriculum = '';
+
+/**
+ * Fetch relevant curriculum content from Firestore for the current topic and grade.
+ * Queries curriculum collection by topic, filters by grade client-side.
+ * Combines matching docs into one string, truncated to 8000 chars max.
+ */
+async function fetchRelevantCurriculum(topicKey, gradeLevel) {
+    if (!isFirebaseConfigured() || !db) {
+        console.log('Firebase not configured, skipping curriculum fetch');
+        return '';
+    }
+
+    try {
+        console.log(`Fetching curriculum for topic=${topicKey}, grade=${gradeLevel}`);
+        const snapshot = await db.collection('curriculum')
+            .where('isActive', '==', true)
+            .where('topics', 'array-contains', topicKey)
+            .get();
+
+        if (snapshot.empty) {
+            console.log('No curriculum documents found for this topic');
+            return '';
+        }
+
+        let combinedContent = '';
+        let matchCount = 0;
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            // Client-side filter by grade
+            if (data.grades && data.grades.includes(gradeLevel)) {
+                matchCount++;
+                combinedContent += `\n--- ${data.title} ---\n${data.content}\n`;
+            }
+        });
+
+        console.log(`Found ${matchCount} curriculum documents matching topic and grade`);
+
+        // Truncate to 8000 chars max to avoid overwhelming the prompt
+        if (combinedContent.length > 8000) {
+            combinedContent = combinedContent.substring(0, 8000) + '\n[...truncated]';
+        }
+
+        return combinedContent.trim();
+    } catch (error) {
+        console.error('Error fetching curriculum:', error);
+        return '';
+    }
+}
+
 // Topic definitions with starting concepts and progression paths
 const ScienceTopics = {
     'solar-system': {
@@ -677,7 +729,12 @@ Where XX is a number from 0-100 representing how well the student demonstrated u
 - 0-29: Minimal understanding or off-topic response
 
 For hint requests, score based on the context of the conversation so far, not the hint request itself.
-The score tag will be hidden from the student, so be accurate and honest in your assessment.`;
+The score tag will be hidden from the student, so be accurate and honest in your assessment.${sessionCurriculum ? `
+
+CURRICULUM REFERENCE MATERIAL:
+Use the following curriculum content to align your questions with what the student is expected to learn at their grade level.
+Do NOT quote this material directly to the student. Instead, use it to inform your questioning strategy, ensuring your questions guide the student toward the key concepts and learning objectives outlined here.
+${sessionCurriculum}` : ''}`;
 }
 
 function buildAssessmentPrompt() {
@@ -1154,6 +1211,12 @@ elements.topicButtons.forEach(btn => {
         };
         resetScoreDisplay();
 
+        // Fetch curriculum content for this topic and grade
+        sessionCurriculum = await fetchRelevantCurriculum(topicId, SessionState.gradeLevel);
+        if (sessionCurriculum) {
+            console.log('Curriculum loaded for session, length:', sessionCurriculum.length);
+        }
+
         showScreen('chat');
 
         try {
@@ -1317,6 +1380,7 @@ elements.newSessionBtn.addEventListener('click', () => {
         currentScore: null
     };
     SessionState.currentAssessment = null;
+    sessionCurriculum = '';
 
     // Clear inputs
     elements.studentNameInput.value = '';

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curriculum Admin - Socratic Science Tutor</title>
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+    <!-- Auth Gate -->
+    <div id="auth-gate" class="auth-gate">
+        <div class="auth-gate-card">
+            <span class="auth-gate-icon">&#128274;</span>
+            <h2>Admin Access Required</h2>
+            <p>Sign in with your admin email to manage curriculum content.</p>
+            <form id="login-form" class="auth-gate-form">
+                <input type="email" id="admin-email" placeholder="Admin email address" required>
+                <button type="submit" id="send-link-btn" class="btn btn-primary">Send Login Link</button>
+            </form>
+            <p id="auth-status" class="auth-status-message">Checking authentication...</p>
+        </div>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="admin-dashboard" class="admin-container hidden">
+
+        <!-- Header -->
+        <header class="admin-header">
+            <div class="admin-header-title">
+                <h1>Curriculum Manager</h1>
+                <span class="admin-badge">Admin</span>
+            </div>
+            <div class="admin-header-actions">
+                <span id="admin-email-display" class="admin-user-email"></span>
+                <button id="sign-out-btn" class="btn-sign-out">Sign Out</button>
+            </div>
+        </header>
+
+        <!-- Stats Bar -->
+        <section class="admin-stats-bar">
+            <div class="admin-stat-item">
+                <div class="admin-stat-icon stat-total">&#128218;</div>
+                <div class="admin-stat-info">
+                    <span class="admin-stat-value" id="stat-total">0</span>
+                    <span class="admin-stat-label">Total Items</span>
+                </div>
+            </div>
+            <div class="admin-stat-item">
+                <div class="admin-stat-icon stat-pdf">&#9989;</div>
+                <div class="admin-stat-info">
+                    <span class="admin-stat-value" id="stat-active">0</span>
+                    <span class="admin-stat-label">Active Items</span>
+                </div>
+            </div>
+            <div class="admin-stat-item">
+                <div class="admin-stat-icon stat-text">&#127793;</div>
+                <div class="admin-stat-info">
+                    <span class="admin-stat-value" id="stat-topics">0</span>
+                    <span class="admin-stat-label">Topics Covered</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Filter Bar -->
+        <section class="admin-filter-bar">
+            <label>Filter:</label>
+            <select id="filter-topic">
+                <option value="">All Topics</option>
+                <option value="solar-system">Solar System</option>
+                <option value="human-body">Human Body</option>
+                <option value="ecosystems">Ecosystems</option>
+                <option value="matter-chemistry">Matter &amp; Chemistry</option>
+                <option value="forces-motion">Forces &amp; Motion</option>
+                <option value="electricity">Electricity</option>
+                <option value="weather-climate">Weather &amp; Climate</option>
+                <option value="cells-life">Cells &amp; Life</option>
+            </select>
+            <select id="filter-grade">
+                <option value="">All Grades</option>
+                <option value="5">Grade 5</option>
+                <option value="6">Grade 6</option>
+                <option value="7">Grade 7</option>
+                <option value="8">Grade 8</option>
+                <option value="9">Grade 9</option>
+                <option value="10">Grade 10</option>
+            </select>
+            <div class="admin-filter-spacer"></div>
+            <button id="add-curriculum-btn" class="btn-add-curriculum">
+                <span class="plus-icon">+</span> Add Curriculum
+            </button>
+        </section>
+
+        <!-- Curriculum Grid -->
+        <div id="curriculum-grid" class="admin-card-grid"></div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="admin-empty-state hidden">
+            <span class="admin-empty-state-icon">&#128214;</span>
+            <h3>No curriculum items yet</h3>
+            <p>Click "Add Curriculum" to create your first curriculum item.</p>
+        </div>
+
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div id="curriculum-modal" class="admin-modal-overlay hidden">
+        <div class="admin-modal">
+
+            <!-- Modal Header -->
+            <div class="admin-modal-header">
+                <h2 id="modal-title">Add Curriculum</h2>
+                <button id="modal-close-btn" class="btn-modal-close" aria-label="Close modal">&times;</button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="admin-modal-body">
+
+                <!-- Title -->
+                <div class="modal-form-group">
+                    <label for="curriculum-title">Title</label>
+                    <input type="text" id="curriculum-title" placeholder="e.g. 6th Grade Solar System Unit Plan" required>
+                </div>
+
+                <!-- Content Type Tabs -->
+                <div class="content-tab-toggle">
+                    <button type="button" id="tab-text" class="content-tab active">Text / Markdown</button>
+                    <button type="button" id="tab-pdf" class="content-tab">PDF Upload</button>
+                </div>
+
+                <!-- Text Tab -->
+                <div id="text-tab" class="content-tab-panel active">
+                    <textarea id="curriculum-text" class="text-editor" placeholder="Enter curriculum content in plain text or Markdown format..."></textarea>
+                </div>
+
+                <!-- PDF Tab -->
+                <div id="pdf-tab" class="content-tab-panel">
+                    <div id="drop-zone" class="pdf-upload-area">
+                        <span class="pdf-upload-icon">&#128196;</span>
+                        <p class="pdf-upload-text">Drop PDF here or <strong>click to browse</strong></p>
+                        <p class="pdf-upload-hint">Maximum file size: 20MB</p>
+                        <input type="file" id="pdf-input" class="pdf-file-input" accept=".pdf">
+                    </div>
+                    <div id="file-info" class="pdf-upload-filename hidden">
+                        <span id="file-name"></span>
+                        <span id="file-size"></span>
+                        <span class="remove-file" title="Remove file">&times;</span>
+                    </div>
+                    <button type="button" id="ocr-btn" class="btn-modal-save hidden" style="margin-top: 12px; width: 100%;">Process with OCR</button>
+                    <div id="ocr-progress" class="pdf-preview-loading hidden">
+                        <div class="spinner-small"></div>
+                        <span>Processing PDF with OCR...</span>
+                    </div>
+                    <div id="ocr-preview-area" class="pdf-preview-area hidden">
+                        <div class="pdf-preview-header">
+                            <span>Extracted Text Preview</span>
+                        </div>
+                        <textarea id="ocr-preview" class="pdf-preview-content" placeholder="Extracted text will appear here..."></textarea>
+                    </div>
+                </div>
+
+                <!-- Topic Tags -->
+                <div class="tag-toggle-section">
+                    <label>Topics</label>
+                    <div class="tag-toggles">
+                        <button type="button" class="tag-toggle-btn topic-tag" data-topic="solar-system">Solar System</button>
+                        <button type="button" class="tag-toggle-btn topic-tag" data-topic="human-body">Human Body</button>
+                        <button type="button" class="tag-toggle-btn topic-tag" data-topic="ecosystems">Ecosystems</button>
+                        <button type="button" class="tag-toggle-btn topic-tag" data-topic="matter-chemistry">Matter &amp; Chemistry</button>
+                        <button type="button" class="tag-toggle-btn topic-tag" data-topic="forces-motion">Forces &amp; Motion</button>
+                        <button type="button" class="tag-toggle-btn topic-tag" data-topic="electricity">Electricity</button>
+                        <button type="button" class="tag-toggle-btn topic-tag" data-topic="weather-climate">Weather &amp; Climate</button>
+                        <button type="button" class="tag-toggle-btn topic-tag" data-topic="cells-life">Cells &amp; Life</button>
+                    </div>
+                </div>
+
+                <!-- Grade Tags -->
+                <div class="tag-toggle-section">
+                    <label>Grades</label>
+                    <div class="tag-toggles">
+                        <button type="button" class="tag-toggle-btn grade-tag" data-grade="5">Grade 5</button>
+                        <button type="button" class="tag-toggle-btn grade-tag" data-grade="6">Grade 6</button>
+                        <button type="button" class="tag-toggle-btn grade-tag" data-grade="7">Grade 7</button>
+                        <button type="button" class="tag-toggle-btn grade-tag" data-grade="8">Grade 8</button>
+                        <button type="button" class="tag-toggle-btn grade-tag" data-grade="9">Grade 9</button>
+                        <button type="button" class="tag-toggle-btn grade-tag" data-grade="10">Grade 10</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="admin-modal-footer">
+                <div class="admin-modal-footer-left">
+                    <button type="button" id="delete-btn" class="btn-modal-delete hidden">Delete</button>
+                </div>
+                <div class="admin-modal-footer-right">
+                    <button type="button" id="cancel-btn" class="btn-modal-cancel">Cancel</button>
+                    <button type="button" id="save-btn" class="btn-modal-save">Save</button>
+                </div>
+            </div>
+
+            <!-- Hidden ID field -->
+            <input type="hidden" id="curriculum-id">
+
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="admin.js"></script>
+
+</body>
+</html>
