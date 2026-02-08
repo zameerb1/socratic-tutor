@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Socratic Science Tutor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -20,19 +23,9 @@
                 <h2>Welcome, Explorer!</h2>
                 <p>Let's start your learning journey. First, we need your API key to power our conversation.</p>
 
-                </div>
-
                 <div class="form-group">
-                    <label for="api-provider">AI Provider</label>
-                    <select id="api-provider">
-                        <option value="anthropic">Claude (Anthropic)</option>
-                        <option value="openai">GPT (OpenAI)</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="api-key" id="api-key-label">Anthropic API Key</label>
-                    <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+                    <label for="api-key" id="api-key-label">OpenAI API Key</label>
+                    <input type="password" id="api-key" placeholder="sk-..." autocomplete="off">
                     <div class="api-key-options">
                         <label class="checkbox-label">
                             <input type="checkbox" id="save-api-key">
@@ -60,49 +53,50 @@
                 </div>
 
                 <button id="start-session" class="btn btn-primary">Start Learning</button>
-
             </div>
         </div>
 
-        <!-- Topic Selection Screen -->
+        <!-- Topic Discovery Screen (Two-Step Flow) -->
         <div id="topic-screen" class="screen hidden">
             <div class="topic-card">
-                <h2>Choose a Science Topic</h2>
-                <p>What would you like to explore today?</p>
+                <!-- Step 1: Describe what you want to learn -->
+                <div id="topic-step-describe" class="topic-step">
+                    <h2>What do you want to learn?</h2>
+                    <p>Describe what you're curious about, and I'll find the best topics for you.</p>
 
-                <div class="topics-grid">
-                    <button class="topic-btn" data-topic="solar-system">
-                        <span class="topic-icon">&#127759;</span>
-                        <span class="topic-name">Solar System</span>
-                    </button>
-                    <button class="topic-btn" data-topic="human-body">
-                        <span class="topic-icon">&#129728;</span>
-                        <span class="topic-name">Human Body</span>
-                    </button>
-                    <button class="topic-btn" data-topic="ecosystems">
-                        <span class="topic-icon">&#127795;</span>
-                        <span class="topic-name">Ecosystems</span>
-                    </button>
-                    <button class="topic-btn" data-topic="matter-chemistry">
-                        <span class="topic-icon">&#129514;</span>
-                        <span class="topic-name">Matter & Chemistry</span>
-                    </button>
-                    <button class="topic-btn" data-topic="forces-motion">
-                        <span class="topic-icon">&#128640;</span>
-                        <span class="topic-name">Forces & Motion</span>
-                    </button>
-                    <button class="topic-btn" data-topic="electricity">
-                        <span class="topic-icon">&#9889;</span>
-                        <span class="topic-name">Electricity</span>
-                    </button>
-                    <button class="topic-btn" data-topic="weather-climate">
-                        <span class="topic-icon">&#127780;</span>
-                        <span class="topic-name">Weather & Climate</span>
-                    </button>
-                    <button class="topic-btn" data-topic="cells-life">
-                        <span class="topic-icon">&#129440;</span>
-                        <span class="topic-name">Cells & Life</span>
-                    </button>
+                    <div class="topic-input-area">
+                        <div class="textarea-wrapper">
+                            <textarea id="topic-description" rows="4" placeholder="Example: I want to learn about how planets move around the Sun, or why the sky is blue, or how our body fights germs..."></textarea>
+                            <button type="button" id="topic-record-btn" class="record-btn" title="Click to speak what you want to learn">
+                                <svg class="mic-icon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="topic-voice-controls" class="voice-controls hidden">
+                            <button type="button" id="topic-voice-pause" class="btn-voice-pause">&#9208; Pause</button>
+                            <button type="button" id="topic-voice-send" class="btn-voice-send">&#9654; Send</button>
+                        </div>
+                        <div class="topic-step-actions">
+                            <button id="find-topics-btn" class="btn btn-primary">Find Topics</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Select from suggested sub-topics -->
+                <div id="topic-step-select" class="topic-step hidden">
+                    <h2>Pick your focus areas</h2>
+                    <p id="topic-select-subtitle">Select the topics you'd like to explore:</p>
+
+                    <div id="suggested-topics-grid" class="suggested-topics-grid">
+                        <!-- Suggested topic chips rendered here by JS -->
+                    </div>
+
+                    <div class="topic-step-actions">
+                        <button id="topic-back-btn" class="btn btn-secondary">Back</button>
+                        <button id="start-learning-btn" class="btn btn-primary" disabled>Start Learning</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -115,14 +109,21 @@
                     <span class="separator">|</span>
                     <span id="question-count">Question 1</span>
                 </div>
-                <div class="score-display">
-                    <div class="score-badge" id="score-badge" title="Your understanding score">
-                        <span class="score-icon">&#127919;</span>
-                        <span class="score-value" id="score-value">--</span>
-                    </div>
-                    <div class="score-label">Understanding</div>
-                </div>
                 <button id="end-session-btn" class="btn btn-secondary btn-small">End Session</button>
+            </div>
+
+            <!-- Concept Tracker Panel -->
+            <div id="concept-tracker" class="concept-tracker hidden">
+                <div class="concept-tracker-header">
+                    <span class="concept-tracker-title">Your Knowledge Map</span>
+                    <button id="toggle-tracker" class="btn-toggle-tracker" title="Toggle knowledge map">&#9660;</button>
+                </div>
+                <div id="concept-tracker-body" class="concept-tracker-body">
+                    <div id="concept-chips" class="concept-chips">
+                        <!-- Concept chips will be added here dynamically -->
+                    </div>
+                    <div id="score-feedback" class="score-feedback hidden"></div>
+                </div>
             </div>
 
             <div id="chat-container" class="chat-container">
@@ -138,6 +139,10 @@
                             <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
                         </svg>
                     </button>
+                </div>
+                <div id="chat-voice-controls" class="voice-controls hidden">
+                    <button type="button" id="chat-voice-pause" class="btn-voice-pause">&#9208; Pause</button>
+                    <button type="button" id="chat-voice-send" class="btn-voice-send">&#9654; Send</button>
                 </div>
                 <div class="input-actions">
                     <button id="send-response" class="btn btn-primary">Send</button>

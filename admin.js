@@ -1,7 +1,7 @@
 /**
  * Curriculum Admin Dashboard
- * Manages curriculum CRUD operations, PDF upload with Mistral OCR,
- * and admin authentication for the Socratic Science Tutor.
+ * Manages curriculum CRUD operations, PDF upload with GPT-4o Vision + pdf.js,
+ * smart auto-tagging, and admin authentication for the Socratic Science Tutor.
  *
  * Data is stored in-memory and exported/imported as curriculum.json.
  * No backend or database required.
@@ -15,8 +15,9 @@
 // Generate with: echo -n "yourpassphrase" | shasum -a 256
 const ADMIN_PASSPHRASE_HASH = '85bd67b52c68dd703d74ac3cf3bfd7e218e971ddb3257e88fc1e65bb3c29fa20';
 
-const MISTRAL_OCR_API_URL = 'https://api.mistral.ai/v1/ocr';
+const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const MAX_PDF_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+const MAX_PDF_PAGES = 20;
 const CURRICULUM_JSON_URL = 'curriculum.json';
 
 const TOPIC_NAMES = {
@@ -41,6 +42,9 @@ const TOPIC_COLORS = {
     'weather-climate': '#06b6d4',
     'cells-life': '#ec4899'
 };
+
+// Valid topic keys for auto-tagging validation
+const VALID_TOPIC_KEYS = Object.keys(TOPIC_NAMES);
 
 // ============================================================================
 // Application State
@@ -75,8 +79,8 @@ const dom = {
     importJsonInput: document.getElementById('import-json-input'),
     exportJsonBtn: document.getElementById('export-json-btn'),
 
-    // Mistral API Key
-    mistralApiKey: document.getElementById('mistral-api-key'),
+    // OpenAI API Key
+    openaiApiKey: document.getElementById('openai-api-key'),
     saveApiKeyBtn: document.getElementById('save-api-key-btn'),
     apiKeyStatus: document.getElementById('api-key-status'),
 
@@ -226,19 +230,19 @@ function showToast(message, type = 'info') {
 }
 
 // ============================================================================
-// Mistral API Key Management
+// OpenAI API Key Management
 // ============================================================================
 
-function getMistralApiKey() {
-    return localStorage.getItem('mistral_api_key') || '';
+function getOpenAIApiKey() {
+    return localStorage.getItem('openai_api_key') || '';
 }
 
-function saveMistralApiKey(key) {
+function saveOpenAIApiKey(key) {
     if (key) {
-        localStorage.setItem('mistral_api_key', key);
+        localStorage.setItem('openai_api_key', key);
         dom.apiKeyStatus.textContent = 'Key saved';
         dom.apiKeyStatus.style.color = '#22c55e';
-        showToast('Mistral API key saved.', 'success');
+        showToast('OpenAI API key saved.', 'success');
     } else {
         showToast('Please enter an API key.', 'error');
     }
@@ -478,83 +482,127 @@ function importCurriculumJson(file) {
 }
 
 // ============================================================================
-// PDF Upload & Mistral OCR
+// PDF Upload & GPT-4o Vision OCR
 // ============================================================================
 
 /**
- * Reads a File object as a base64-encoded string.
- * @param {File} file
- * @returns {Promise<string>} Base64-encoded file content
+ * Calls GPT-4o Vision to extract text from a single page image.
+ * @param {string} apiKey - OpenAI API key
+ * @param {string} imageBase64 - Base64 data URL of the page image
+ * @param {number} pageNum - Current page number (1-based)
+ * @param {number} totalPages - Total number of pages
+ * @returns {Promise<string>} Extracted text
  */
-function readFileAsBase64(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            // reader.result is "data:application/pdf;base64,..." -- extract just the base64 part
-            const base64 = reader.result.split(',')[1];
-            resolve(base64);
-        };
-        reader.onerror = () => reject(new Error('Failed to read file'));
-        reader.readAsDataURL(file);
+async function callGPT4oVision(apiKey, imageBase64, pageNum, totalPages) {
+    console.log(`[OCR] Sending page ${pageNum}/${totalPages} to GPT-4o Vision`);
+
+    const response = await fetch(OPENAI_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+            model: 'gpt-4o',
+            messages: [{
+                role: 'user',
+                content: [
+                    {
+                        type: 'text',
+                        text: `Extract ALL text from this PDF page image (page ${pageNum} of ${totalPages}). Preserve the original structure, headings, lists, and formatting as much as possible using markdown. Include all text content — do not summarize or omit anything.`
+                    },
+                    {
+                        type: 'image_url',
+                        image_url: {
+                            url: imageBase64,
+                            detail: 'high'
+                        }
+                    }
+                ]
+            }],
+            max_tokens: 4096,
+            temperature: 0
+        })
     });
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`[OCR] GPT-4o Vision API returned ${response.status}: ${errorBody}`);
+        throw new Error(`Vision API request failed with status ${response.status}`);
+    }
+
+    const result = await response.json();
+    return result.choices[0].message.content || '';
 }
 
 /**
- * Calls the Mistral OCR API to extract text from a PDF.
+ * Extracts text from a PDF using pdf.js for rendering and GPT-4o Vision for OCR.
  * @param {File} file - The PDF file
- * @returns {string|null} Extracted markdown text, or null on failure
+ * @param {function} onProgress - Progress callback: (pageNum, totalPages)
+ * @returns {Promise<string|null>} Extracted text, or null on failure
  */
-async function extractTextWithOCR(file) {
-    const apiKey = getMistralApiKey();
+async function extractTextWithVision(file, onProgress) {
+    const apiKey = getOpenAIApiKey();
     if (!apiKey) {
-        showToast('Please enter your Mistral API key in the settings bar above.', 'error');
+        showToast('Please enter your OpenAI API key in the settings bar above.', 'error');
         return null;
     }
 
-    console.log(`[OCR] Starting OCR for file: ${file.name}, size: ${formatFileSize(file.size)}`);
+    console.log(`[OCR] Starting GPT-4o Vision extraction for: ${file.name}, size: ${formatFileSize(file.size)}`);
 
     try {
-        const base64Data = await readFileAsBase64(file);
-        console.log(`[OCR] File encoded to base64, length: ${base64Data.length} characters`);
+        // Read the PDF file as ArrayBuffer
+        const arrayBuffer = await file.arrayBuffer();
+        console.log('[OCR] PDF loaded into memory');
 
-        const documentUrl = `data:application/pdf;base64,${base64Data}`;
+        // Load with pdf.js
+        const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const totalPages = Math.min(pdfDoc.numPages, MAX_PDF_PAGES);
+        console.log(`[OCR] PDF has ${pdfDoc.numPages} pages, processing ${totalPages}`);
 
-        const payload = {
-            model: 'mistral-ocr-latest',
-            document: {
-                type: 'document_url',
-                document_url: documentUrl
-            }
-        };
-
-        console.log('[OCR] Sending request to Mistral OCR API...');
-        const response = await fetch(MISTRAL_OCR_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error(`[OCR] API returned ${response.status}: ${errorBody}`);
-            throw new Error(`OCR API request failed with status ${response.status}`);
+        if (pdfDoc.numPages > MAX_PDF_PAGES) {
+            showToast(`PDF has ${pdfDoc.numPages} pages. Processing first ${MAX_PDF_PAGES} pages only.`, 'info');
         }
 
-        const result = await response.json();
-        console.log(`[OCR] Received response with ${result.pages ? result.pages.length : 0} pages`);
+        const pageTexts = [];
 
-        const extractedText = (result.pages || [])
-            .map(page => page.markdown || '')
-            .join('\n\n');
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+            if (onProgress) onProgress(pageNum, totalPages);
 
-        console.log(`[OCR] Extracted ${extractedText.length} characters of text`);
-        return extractedText;
+            // Get the page
+            const page = await pdfDoc.getPage(pageNum);
+
+            // Render to canvas at scale 2.0 for better quality
+            const scale = 2.0;
+            const viewport = page.getViewport({ scale });
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            await page.render({
+                canvasContext: ctx,
+                viewport: viewport
+            }).promise;
+
+            // Convert canvas to base64 PNG
+            const imageBase64 = canvas.toDataURL('image/png');
+            console.log(`[OCR] Page ${pageNum} rendered, image size: ~${Math.round(imageBase64.length / 1024)}KB`);
+
+            // Send to GPT-4o Vision
+            const pageText = await callGPT4oVision(apiKey, imageBase64, pageNum, totalPages);
+            pageTexts.push(pageText);
+
+            console.log(`[OCR] Page ${pageNum} extracted: ${pageText.length} characters`);
+        }
+
+        const combinedText = pageTexts.join('\n\n---\n\n');
+        console.log(`[OCR] Total extracted text: ${combinedText.length} characters from ${totalPages} pages`);
+        return combinedText;
     } catch (error) {
-        console.error('[OCR] Error during OCR processing:', error);
-        showToast('OCR processing failed. Please try again or enter text manually.', 'error');
+        console.error('[OCR] Error during Vision extraction:', error);
+        showToast('Text extraction failed. Please try again or enter text manually.', 'error');
         return null;
     }
 }
@@ -600,33 +648,27 @@ async function runOcrPipeline() {
         return;
     }
 
-    console.log('[OCR] Starting OCR pipeline');
+    console.log('[OCR] Starting Vision OCR pipeline');
 
     // Show progress
     dom.ocrBtn.classList.add('hidden');
     dom.ocrProgress.classList.remove('hidden');
     dom.ocrPreviewArea.classList.add('hidden');
 
-    const progressFill = dom.ocrProgress.querySelector('.progress-fill');
-    const progressText = dom.ocrProgress.querySelector('.progress-text');
+    const progressSpan = dom.ocrProgress.querySelector('span');
 
-    // Animate progress bar (indeterminate-style with stages)
-    if (progressFill) progressFill.style.width = '20%';
-    if (progressText) progressText.textContent = 'Reading PDF file...';
+    const onProgress = (pageNum, totalPages) => {
+        if (progressSpan) {
+            progressSpan.textContent = `Extracting text: page ${pageNum} of ${totalPages}...`;
+        }
+    };
 
-    await new Promise(r => setTimeout(r, 500));
-    if (progressFill) progressFill.style.width = '40%';
-    if (progressText) progressText.textContent = 'Sending to OCR service...';
+    if (progressSpan) progressSpan.textContent = 'Loading PDF...';
 
-    const extractedText = await extractTextWithOCR(selectedPdfFile);
+    const extractedText = await extractTextWithVision(selectedPdfFile, onProgress);
 
     if (extractedText !== null) {
-        if (progressFill) progressFill.style.width = '90%';
-        if (progressText) progressText.textContent = 'Processing results...';
-
-        await new Promise(r => setTimeout(r, 300));
-        if (progressFill) progressFill.style.width = '100%';
-        if (progressText) progressText.textContent = 'OCR complete!';
+        if (progressSpan) progressSpan.textContent = 'Extraction complete!';
 
         // Show extracted text in editable preview
         dom.ocrPreview.value = extractedText;
@@ -639,11 +681,7 @@ async function runOcrPipeline() {
         console.log('[OCR] Pipeline completed successfully');
     } else {
         // OCR failed
-        if (progressFill) {
-            progressFill.style.width = '100%';
-            progressFill.style.backgroundColor = '#ef4444';
-        }
-        if (progressText) progressText.textContent = 'OCR failed. Try again or enter text manually.';
+        if (progressSpan) progressSpan.textContent = 'Extraction failed. Try again or enter text manually.';
 
         await new Promise(r => setTimeout(r, 2000));
         dom.ocrProgress.classList.add('hidden');
@@ -651,6 +689,125 @@ async function runOcrPipeline() {
 
         console.error('[OCR] Pipeline failed');
     }
+}
+
+// ============================================================================
+// Smart Auto-Tagging with GPT-4o
+// ============================================================================
+
+/**
+ * Analyzes content with GPT-4o to auto-detect topics and grade levels.
+ * @param {string} title - Document title
+ * @param {string} content - Document content
+ * @returns {Promise<{title: string, topics: string[], grades: number[], summary: string}|null>}
+ */
+async function autoAnalyzeContent(title, content) {
+    const apiKey = getOpenAIApiKey();
+    if (!apiKey) {
+        console.log('[AutoTag] No API key available, skipping auto-analysis');
+        return null;
+    }
+
+    console.log(`[AutoTag] Analyzing content: title="${title}", content length=${content.length}`);
+
+    try {
+        const response = await fetch(OPENAI_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o',
+                messages: [{
+                    role: 'user',
+                    content: `Analyze this educational document and return a JSON object with these fields:
+{
+  "title": "suggested title if the provided one seems incomplete, otherwise use the provided title as-is",
+  "topics": ["matching topic keys from ONLY this list: solar-system, human-body, ecosystems, matter-chemistry, forces-motion, electricity, weather-climate, cells-life"],
+  "grades": [array of grade numbers from 5-10 that this content is appropriate for],
+  "summary": "one-sentence summary of what this content covers"
+}
+
+Document title: ${title || '(none)'}
+Document content (first 3000 chars): ${content.substring(0, 3000)}
+
+Return ONLY valid JSON, no other text.`
+                }],
+                max_tokens: 512,
+                temperature: 0
+            })
+        });
+
+        if (!response.ok) {
+            console.error(`[AutoTag] API returned ${response.status}`);
+            return null;
+        }
+
+        const data = await response.json();
+        const responseText = data.choices[0].message.content;
+
+        // Parse JSON from response
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            console.error('[AutoTag] No JSON found in response');
+            return null;
+        }
+
+        const analysis = JSON.parse(jsonMatch[0]);
+
+        // Validate and sanitize topics
+        const validTopics = (analysis.topics || []).filter(t => VALID_TOPIC_KEYS.includes(t));
+
+        // Validate and sanitize grades
+        const validGrades = (analysis.grades || [])
+            .map(g => parseInt(g))
+            .filter(g => g >= 5 && g <= 10);
+
+        const result = {
+            title: analysis.title || title,
+            topics: validTopics,
+            grades: validGrades,
+            summary: analysis.summary || ''
+        };
+
+        console.log(`[AutoTag] Analysis result: topics=[${result.topics}], grades=[${result.grades}], summary="${result.summary}"`);
+        return result;
+    } catch (error) {
+        console.error('[AutoTag] Error analyzing content:', error);
+        return null;
+    }
+}
+
+/**
+ * Applies auto-detected tags to the modal UI.
+ * @param {{topics: string[], grades: number[]}} analysis
+ */
+function applyAutoTags(analysis) {
+    if (!analysis) return;
+
+    // Update selected topics
+    selectedTopics = [...analysis.topics];
+    document.querySelectorAll('.topic-tag').forEach(btn => {
+        if (selectedTopics.includes(btn.dataset.topic)) {
+            btn.classList.add('selected');
+        } else {
+            btn.classList.remove('selected');
+        }
+    });
+
+    // Update selected grades
+    selectedGrades = [...analysis.grades];
+    document.querySelectorAll('.grade-tag').forEach(btn => {
+        const grade = parseInt(btn.dataset.grade);
+        if (selectedGrades.includes(grade)) {
+            btn.classList.add('selected');
+        } else {
+            btn.classList.remove('selected');
+        }
+    });
+
+    console.log(`[AutoTag] Applied tags: topics=[${selectedTopics}], grades=[${selectedGrades}]`);
 }
 
 // ============================================================================
@@ -748,13 +905,6 @@ function resetModalForm() {
     dom.pdfInput.value = '';
     dom.deleteBtn.classList.add('hidden');
 
-    // Reset progress bar color
-    const progressFill = dom.ocrProgress.querySelector('.progress-fill');
-    if (progressFill) {
-        progressFill.style.width = '0%';
-        progressFill.style.backgroundColor = '';
-    }
-
     selectedTopics = [];
     selectedGrades = [];
     selectedPdfFile = null;
@@ -790,9 +940,9 @@ function switchContentTab(tab) {
 }
 
 /**
- * Gathers form data, validates, and saves (create or update) the curriculum item.
+ * Gathers form data, validates, runs auto-analysis, and saves the curriculum item.
  */
-function handleSave() {
+async function handleSave() {
     const title = dom.curriculumTitle.value.trim();
 
     if (!title) {
@@ -811,7 +961,7 @@ function handleSave() {
         content = dom.ocrPreview.value.trim();
 
         if (!content && !selectedPdfFile) {
-            showToast('Please upload a PDF and process it with OCR, or switch to text mode.', 'error');
+            showToast('Please upload a PDF and process it, or switch to text mode.', 'error');
             return;
         }
 
@@ -832,18 +982,59 @@ function handleSave() {
         }
     }
 
-    if (selectedTopics.length === 0) {
-        showToast('Please select at least one topic.', 'error');
-        return;
-    }
+    // If no topics or grades are manually selected, run auto-analysis
+    if (selectedTopics.length === 0 || selectedGrades.length === 0) {
+        showToast('Auto-detecting topics and grades...', 'info');
+        dom.saveBtn.disabled = true;
+        dom.saveBtn.textContent = 'Analyzing...';
 
-    if (selectedGrades.length === 0) {
-        showToast('Please select at least one grade level.', 'error');
-        return;
+        try {
+            const analysis = await autoAnalyzeContent(title, content);
+            if (analysis) {
+                // Apply auto-detected tags if none were manually selected
+                if (selectedTopics.length === 0) {
+                    selectedTopics = analysis.topics;
+                    // Update UI to show what was detected
+                    document.querySelectorAll('.topic-tag').forEach(btn => {
+                        if (selectedTopics.includes(btn.dataset.topic)) {
+                            btn.classList.add('selected');
+                        }
+                    });
+                }
+                if (selectedGrades.length === 0) {
+                    selectedGrades = analysis.grades;
+                    document.querySelectorAll('.grade-tag').forEach(btn => {
+                        if (selectedGrades.includes(parseInt(btn.dataset.grade))) {
+                            btn.classList.add('selected');
+                        }
+                    });
+                }
+                // Use suggested title if current one seems empty
+                if (!title && analysis.title) {
+                    dom.curriculumTitle.value = analysis.title;
+                }
+                showToast(`Auto-detected: ${selectedTopics.length} topic(s), grades ${selectedGrades.join(', ')}`, 'success');
+            }
+        } catch (err) {
+            console.error('[Save] Auto-analysis failed:', err);
+        } finally {
+            dom.saveBtn.disabled = false;
+            dom.saveBtn.textContent = 'Save';
+        }
+
+        // If still no topics/grades after auto-analysis, warn but still allow save
+        if (selectedTopics.length === 0) {
+            showToast('Could not auto-detect topics. Please select at least one topic manually.', 'error');
+            return;
+        }
+        if (selectedGrades.length === 0) {
+            showToast('Could not auto-detect grades. Please select at least one grade level manually.', 'error');
+            return;
+        }
     }
 
     const data = {
-        title,
+        title: dom.curriculumTitle.value.trim(),
         content,
         contentType,
         pdfFileName,
@@ -1112,9 +1303,9 @@ function initEventListeners() {
         }
     });
 
-    // Mistral API Key
+    // OpenAI API Key
     dom.saveApiKeyBtn.addEventListener('click', () => {
-        saveMistralApiKey(dom.mistralApiKey.value.trim());
+        saveOpenAIApiKey(dom.openaiApiKey.value.trim());
     });
 
     // Filters
@@ -1241,10 +1432,10 @@ function init() {
     // Check for existing admin session
     checkExistingSession();
 
-    // Load Mistral API key status
-    const savedKey = getMistralApiKey();
+    // Load OpenAI API key status
+    const savedKey = getOpenAIApiKey();
     if (savedKey) {
-        dom.mistralApiKey.value = '••••••••';
+        dom.openaiApiKey.value = '••••••••';
         dom.apiKeyStatus.textContent = 'Key saved';
         dom.apiKeyStatus.style.color = '#22c55e';
     }

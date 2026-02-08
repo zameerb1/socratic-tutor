@@ -39,10 +39,10 @@
             </div>
         </header>
 
-        <!-- Mistral API Key Settings -->
+        <!-- OpenAI API Key Settings -->
         <div class="admin-settings-bar">
-            <label for="mistral-api-key">Mistral OCR API Key:</label>
-            <input type="password" id="mistral-api-key" placeholder="Enter Mistral API key for PDF processing">
+            <label for="openai-api-key">OpenAI API Key:</label>
+            <input type="password" id="openai-api-key" placeholder="Enter OpenAI API key for PDF processing">
             <button id="save-api-key-btn" class="btn-save-key">Save Key</button>
             <span id="api-key-status" class="api-key-status"></span>
         </div>
@@ -220,6 +220,10 @@
     <div id="toast-container" class="toast-container"></div>
 
     <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
     <script src="admin.js"></script>
 
 </body>
